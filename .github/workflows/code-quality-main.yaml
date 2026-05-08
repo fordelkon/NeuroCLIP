@@ -1,11 +1,8 @@
-# Same as `code-quality-pr.yaml` but triggered on commit to main branch
-# and runs on all files (instead of only the changed ones)
-
 name: Code Quality Main
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   code-quality:
@@ -13,10 +10,20 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-      - name: Run pre-commits
-        uses: pre-commit/action@v2.0.3
+      - name: Install dependencies
+        run: uv sync --locked --extra cpu
+
+      - name: Run pre-commit
+        run: uv run --no-sync pre-commit run --all-files
