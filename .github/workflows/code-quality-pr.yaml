@@ -1,9 +1,3 @@
-# This workflow finds which files were changed, prints them,
-# and runs `pre-commit` on those files.
-
-# Inspired by the sktime library:
-# https://github.com/alan-turing-institute/sktime/blob/main/.github/workflows/test.yml
-
 name: Code Quality PR
 
 on:
@@ -16,21 +10,20 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v2
-
-      - name: Find modified files
-        id: file_changes
-        uses: trilom/file-changes-action@v1.2.4
+        uses: actions/setup-python@v5
         with:
-          output: " "
+          python-version: "3.10"
 
-      - name: List modified files
-        run: echo '${{ steps.file_changes.outputs.files}}'
+      - name: Install dependencies
+        run: uv sync --locked --extra cpu
 
-      - name: Run pre-commits
-        uses: pre-commit/action@v2.0.3
-        with:
-          extra_args: --files ${{ steps.file_changes.outputs.files}}
+      - name: Run pre-commit
+        run: uv run --no-sync pre-commit run --all-files

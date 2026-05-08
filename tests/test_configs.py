@@ -46,8 +46,12 @@ def test_rich_progress_bar_uses_ascii_time_columns(cfg_train: DictConfig) -> Non
     :param cfg_train: A DictConfig containing a valid training configuration.
     """
     callbacks = instantiate_callbacks(cfg_train.callbacks)
-    progress_bar = next(callback for callback in callbacks if isinstance(callback, RichProgressBar))
+    progress_bar = next(
+        callback for callback in callbacks if isinstance(callback, RichProgressBar)
+    )
 
-    column_names = {type(column).__name__ for column in progress_bar.configure_columns(trainer=None)}
+    column_names = {
+        type(column).__name__ for column in progress_bar.configure_columns(trainer=None)
+    }
 
     assert "CustomTimeColumn" not in column_names
