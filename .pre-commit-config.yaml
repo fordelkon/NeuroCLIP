@@ -1,5 +1,5 @@
 default_language_version:
-  python: python3
+  python: python
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -36,13 +36,17 @@ repos:
     rev: v3.3.1
     hooks:
       - id: pyupgrade
-        args: [--py38-plus]
+        args: [--py310-plus]
 
   # python docstring formatting
-  - repo: https://github.com/myint/docformatter
-    rev: v1.7.4
+  - repo: local
     hooks:
       - id: docformatter
+        name: docformatter
+        entry: docformatter
+        language: python
+        types: [python]
+        additional_dependencies: [docformatter==1.7.5]
         args:
           [
             --in-place,
@@ -57,6 +61,8 @@ repos:
     rev: 1.5.0 # or master if you're bold
     hooks:
       - id: interrogate
+        files: ^src/
+        additional_dependencies: [setuptools<81]
         args:
           [
             --verbose,
@@ -87,11 +93,13 @@ repos:
     rev: "1.7.5"
     hooks:
       - id: bandit
+        files: ^src/
+        additional_dependencies: [pbr]
         args: ["-s", "B101"]
 
   # yaml formatting
   - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v3.0.0-alpha.6
+    rev: v3.1.0
     hooks:
       - id: prettier
         types: [yaml]
@@ -110,7 +118,7 @@ repos:
       - id: mdformat
         args: ["--number"]
         additional_dependencies:
-          - mdformat-gfm
+          - mdformat-gfm==0.3.7
           - mdformat-tables
           - mdformat_frontmatter
           # - mdformat-toc
@@ -136,10 +144,13 @@ repos:
     rev: 1.6.3
     hooks:
       - id: nbqa-black
+        additional_dependencies: [black, setuptools<81]
         args: ["--line-length=99"]
       - id: nbqa-isort
+        additional_dependencies: [isort, setuptools<81]
         args: ["--profile=black"]
       - id: nbqa-flake8
+        additional_dependencies: [flake8, setuptools<81]
         args:
           [
             "--extend-ignore=E203,E402,E501,F401,F841",
