@@ -1,0 +1,21 @@
+# @package _global_
+
+# specify here default preprocessing configuration
+defaults:
+  - _self_
+  - preprocess: thingseeg2
+  - paths: default
+  - extras: default
+  - hydra: default
+
+  # optional local config for machine/user specific settings
+  - optional local: default
+
+# task name, determines output directory path
+task_name: "preprocess"
+
+# tags to help you identify preprocessing runs
+tags: ["preprocess"]
+
+# seed for reproducible trial selection
+seed: 42

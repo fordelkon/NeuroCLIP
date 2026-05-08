@@ -61,6 +61,25 @@ def cfg_eval_global() -> DictConfig:
     return cfg
 
 
+@pytest.fixture(scope="package")
+def cfg_preprocess_global() -> DictConfig:
+    """A pytest fixture for setting up a default Hydra DictConfig for preprocessing.
+
+    :return: A DictConfig containing a valid preprocessing configuration.
+    """
+    with initialize(version_base="1.3", config_path="../configs"):
+        cfg = compose(config_name="preprocess.yaml", return_hydra_config=True, overrides=[])
+
+        with open_dict(cfg):
+            cfg.paths.root_dir = str(rootutils.find_root(indicator=".project-root"))
+            cfg.paths.output_dir = "."
+            cfg.paths.log_dir = "."
+            cfg.extras.print_config = False
+            cfg.extras.enforce_tags = False
+
+    return cfg
+
+
 @pytest.fixture(scope="function")
 def cfg_train(cfg_train_global: DictConfig, tmp_path: Path) -> DictConfig:
     """A pytest fixture built on top of the `cfg_train_global()` fixture, which accepts a temporary
@@ -97,6 +116,25 @@ def cfg_eval(cfg_eval_global: DictConfig, tmp_path: Path) -> DictConfig:
     :return: A DictConfig with updated output and log directories corresponding to `tmp_path`.
     """
     cfg = cfg_eval_global.copy()
+
+    with open_dict(cfg):
+        cfg.paths.output_dir = str(tmp_path)
+        cfg.paths.log_dir = str(tmp_path)
+
+    yield cfg
+
+    GlobalHydra.instance().clear()
+
+
+@pytest.fixture(scope="function")
+def cfg_preprocess(cfg_preprocess_global: DictConfig, tmp_path: Path) -> DictConfig:
+    """A pytest fixture built on top of the global preprocessing configuration.
+
+    :param cfg_preprocess_global: The input DictConfig object to be modified.
+    :param tmp_path: The temporary logging path.
+    :return: A DictConfig with temporary output and log directories.
+    """
+    cfg = cfg_preprocess_global.copy()
 
     with open_dict(cfg):
         cfg.paths.output_dir = str(tmp_path)
