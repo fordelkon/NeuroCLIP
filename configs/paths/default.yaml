@@ -6,6 +6,11 @@ root_dir: ${oc.env:PROJECT_ROOT}
 # path to data directory
 data_dir: ${paths.root_dir}/data/
 
+# THINGS-EEG2 dataset paths shared by preprocessing and training configs
+thingseeg2_raw_dir: ${paths.data_dir}/thingseeg2-eegs
+thingseeg2_img_dir: ${paths.data_dir}/thingseeg2-images
+thingseeg2_preprocessed_dir: ${paths.data_dir}/thingseeg2-eeg2-250hz
+
 # path to logging directory
 log_dir: ${paths.root_dir}/logs/
 
