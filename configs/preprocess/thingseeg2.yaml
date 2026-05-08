@@ -1,0 +1,12 @@
+_target_: src.preprocessors.thingseeg2.Thingseeg2Preprocessor
+
+subject_id: 1
+num_sessions: 4
+sfreq: 250
+tmin: -0.2
+tmax: 1.0
+mvnn_dim: null
+raw_data_dir: ${paths.data_dir}/thingseeg2-eegs
+img_data_dir: ${paths.data_dir}/thingseeg2-images
+save_dir: ${paths.data_dir}/thingseeg2-eeg2-250hz
+seed: ${seed}

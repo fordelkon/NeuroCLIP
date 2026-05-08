@@ -40,6 +40,22 @@ def test_eval_config(cfg_eval: DictConfig) -> None:
     hydra.utils.instantiate(cfg_eval.trainer)
 
 
+def test_preprocess_config(cfg_preprocess: DictConfig) -> None:
+    """Tests the preprocessing configuration provided by the `cfg_preprocess` fixture.
+
+    :param cfg_preprocess: A DictConfig containing a valid preprocessing configuration.
+    """
+    assert cfg_preprocess
+    assert cfg_preprocess.preprocess
+    assert cfg_preprocess.preprocess._target_.startswith("src.preprocessors.")
+
+    HydraConfig().set_config(cfg_preprocess)
+
+    preprocessor = hydra.utils.instantiate(cfg_preprocess.preprocess)
+
+    assert hasattr(preprocessor, "run")
+
+
 def test_rich_progress_bar_uses_ascii_time_columns(cfg_train: DictConfig) -> None:
     """Tests that progress rendering avoids Unicode-only separators on Windows terminals.
 

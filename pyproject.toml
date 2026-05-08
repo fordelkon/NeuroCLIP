@@ -21,6 +21,9 @@ dependencies = [
     "pre-commit",
     "rich",
     "pytest",
+    "mne",
+    "scipy",
+    "scikit-learn",
 ]
 
 [tool.pytest.ini_options]
