@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Commit Principle"
+  short_description: "Shape local commits into clear PR history."
+  default_prompt: "Use $git-commit-principle to organize this branch into reviewer-friendly commits."
