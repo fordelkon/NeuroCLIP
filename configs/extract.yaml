@@ -1,0 +1,21 @@
+# @package _global_
+
+# specify here default feature extraction configuration
+defaults:
+  - _self_
+  - extract: thingseeg2
+  - paths: default
+  - extras: default
+  - hydra: default
+
+  # optional local config for machine/user specific settings
+  - optional local: default
+
+# task name, determines output directory path
+task_name: "extract"
+
+# tags to help you identify extraction runs
+tags: ["extract", "clip"]
+
+# seed for reproducible extraction-time choices
+seed: 42

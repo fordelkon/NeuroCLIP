@@ -10,6 +10,8 @@ data_dir: ${paths.root_dir}/data/
 thingseeg2_raw_dir: ${paths.data_dir}/thingseeg2-eegs
 thingseeg2_img_dir: ${paths.data_dir}/thingseeg2-images
 thingseeg2_preprocessed_dir: ${paths.data_dir}/thingseeg2-eeg2-250hz
+thingseeg2_clip_features_dir: ${paths.data_dir}/thingseeg2-clip-features
+clip_model_cache_dir: ${paths.data_dir}/clip-cache
 
 # path to logging directory
 log_dir: ${paths.root_dir}/logs/
