@@ -24,17 +24,10 @@ from rich.progress import (
 )
 from rich.table import Table
 
+from src.utils.clip import resolve_clip_model_id, sanitize_clip_model_name
+
 StrPath = Union[str, os.PathLike[str]]
 ImageClipFeatureMode = Literal["pooled", "last_hidden_state_no_cls"]
-
-CLIP_MODEL_MAP = {
-    "ViT-B-16": "laion/CLIP-ViT-B-16-laion2B-s34B-b88K",
-    "ViT-B-32": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
-    "ViT-L-14": "laion/CLIP-ViT-L-14-laion2B-s32B-b82K",
-    "ViT-H-14": "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
-    "ViT-g-14": "laion/CLIP-ViT-g-14-laion2B-s34B-b88K",
-    "ViT-bigG-14": "laion/CLIP-ViT-bigG-14-laion2B-s39B-b160K",
-}
 
 console = Console()
 
@@ -208,11 +201,7 @@ def collect_partition_metadata(partition_path: StrPath) -> PartitionMetadata:
 
 def resolve_model_id(model_name: str, model_id: str | None = None) -> tuple[str, str]:
     """Resolve a simple CLIP model name to a Hugging Face model id."""
-    if model_id:
-        return model_name, model_id
-    if model_name in CLIP_MODEL_MAP:
-        return model_name, CLIP_MODEL_MAP[model_name]
-    return _sanitize_name(model_name), model_name
+    return resolve_clip_model_id(model_name, model_id)
 
 
 def resolve_device(device: str) -> str:
@@ -241,10 +230,12 @@ def normalize_feature_mode(feature_mode: str) -> ImageClipFeatureMode:
 
 
 def _first_repetition_as_list(values: Any, field_name: str) -> list[str]:
+    """Return first-repetition metadata values as strings."""
     return [str(value) for value in _first_repetition(values, field_name).tolist()]
 
 
 def _first_repetition(values: Any, field_name: str) -> np.ndarray:
+    """Return image-level metadata from the first repetition column."""
     array = np.asarray(values)
     if array.ndim == 1:
         return array
@@ -268,6 +259,7 @@ def _validate_partition_metadata(
 
 
 def _all_cuda_devices() -> tuple[str, ...]:
+    """Return every visible CUDA device as torch device strings."""
     count = torch.cuda.device_count()
     if count < 1:
         raise ValueError("CUDA is available, but torch.cuda.device_count() is zero.")
@@ -275,6 +267,7 @@ def _all_cuda_devices() -> tuple[str, ...]:
 
 
 def _split_contiguous(values: list[str], num_chunks: int) -> list[list[str]]:
+    """Split values into contiguous chunks with stable row order."""
     chunk_count = min(len(values), num_chunks)
     base_size, remainder = divmod(len(values), chunk_count)
     chunks = []
@@ -296,13 +289,10 @@ def _callable_accepts_device(factory: Callable[..., ClipBackend]) -> bool:
 
 
 def _projected_pooler_output(output: Any) -> torch.Tensor:
+    """Return projected CLIP features from tensor or model-output objects."""
     if isinstance(output, torch.Tensor):
         return output
     return output.pooler_output
-
-
-def _sanitize_name(value: str) -> str:
-    return value.replace("/", "-").replace("\\", "-").replace(" ", "_")
 
 
 @dataclass
@@ -341,8 +331,8 @@ class Thingseeg2ClipExtractor:
         """Return the versioned output directory for this extractor config."""
         return (
             self.save_dir
-            / _sanitize_name(self.model_name)
-            / _sanitize_name(self.resolved_model_id)
+            / sanitize_clip_model_name(self.model_name)
+            / sanitize_clip_model_name(self.resolved_model_id)
             / self.feature_mode
         )
 
