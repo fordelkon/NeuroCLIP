@@ -1,5 +1,19 @@
 #!/usr/bin/env bash
 
+# Usage:
+#   bash scripts/macos/preprocess.sh [start_subject] [end_subject] [hydra_overrides...]
+#
+# Arguments:
+#   start_subject       First THINGS-EEG2 subject id to preprocess. Defaults to 1.
+#   end_subject         Last THINGS-EEG2 subject id to preprocess. Defaults to 10.
+#   hydra_overrides     Optional Hydra overrides forwarded to src/preprocess.py.
+#
+# Examples:
+#   bash scripts/macos/preprocess.sh
+#   bash scripts/macos/preprocess.sh 1 10
+#   bash scripts/macos/preprocess.sh 1 10 preprocess.sfreq=250
+#   bash scripts/macos/preprocess.sh 1 10 paths.thingseeg2_raw_dir=/data/eeg paths.thingseeg2_preprocessed_dir=/data/prep
+
 set -euo pipefail
 
 start_subject="${1:-1}"
