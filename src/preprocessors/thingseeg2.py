@@ -324,6 +324,37 @@ def _apply_whitening(data: np.ndarray, sigma_inv: np.ndarray) -> np.ndarray:
     return np.reshape(whitened, data.shape).astype(np.float32, copy=False)
 
 
+def zscore(
+    epoched_test: list[np.ndarray],
+    epoched_train: list[np.ndarray],
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Apply per-session channel z-score using training data statistics."""
+    normalized_test = []
+    normalized_train = []
+
+    console.print(
+        Panel.fit(
+            "[bold magenta]Z-score Normalization[/bold magenta]\n"
+            f"Sessions: [yellow]{len(epoched_train)}[/yellow]\n"
+            "[dim]Using training data mean and std only[/dim]",
+            border_style="magenta",
+        )
+    )
+
+    for session_idx, train_data in enumerate(epoched_train):
+        mean = train_data.mean(axis=(0, 1, 3), keepdims=True)
+        std = train_data.std(axis=(0, 1, 3), keepdims=True)
+        std = np.where(std == 0, 1.0, std)
+
+        normalized_test.append(
+            ((epoched_test[session_idx] - mean) / std).astype(np.float32, copy=False)
+        )
+        normalized_train.append(((train_data - mean) / std).astype(np.float32, copy=False))
+
+    console.print("  [green]OK[/green] Z-score normalization complete")
+    return normalized_test, normalized_train
+
+
 def save_prepr(
     subject_id: int,
     num_sessions: int,
@@ -639,7 +670,7 @@ class Thingseeg2Preprocessor:
         return {"subject_id": self.subject_id, "output_dir": str(self.save_dir), **outputs}
 
     def _run_partitioned_without_mvnn(self) -> dict[str, str]:
-        """Run and save test and train partitions separately without whitening."""
+        """Run z-score normalization when MVNN whitening is disabled."""
         epoched_test, _, ch_names, times = epoching(
             subject_id=self.subject_id,
             num_sessions=self.num_sessions,
@@ -650,20 +681,6 @@ class Thingseeg2Preprocessor:
             data_part="test",
             seed=self.seed,
         )
-        outputs = save_prepr(
-            subject_id=self.subject_id,
-            num_sessions=self.num_sessions,
-            save_dir=self.save_dir,
-            img_data_dir=self.img_data_dir,
-            whitened_test=epoched_test,
-            whitened_train=None,
-            img_conditions_train=None,
-            ch_names=ch_names,
-            times=times,
-        )
-        del epoched_test
-        gc.collect()
-
         epoched_train, img_conditions_train, _, _ = epoching(
             subject_id=self.subject_id,
             num_sessions=self.num_sessions,
@@ -674,20 +691,26 @@ class Thingseeg2Preprocessor:
             data_part="training",
             seed=self.seed,
         )
-        outputs.update(
-            save_prepr(
-                subject_id=self.subject_id,
-                num_sessions=self.num_sessions,
-                save_dir=self.save_dir,
-                img_data_dir=self.img_data_dir,
-                whitened_test=None,
-                whitened_train=epoched_train,
-                img_conditions_train=img_conditions_train,
-                ch_names=ch_names,
-                times=times,
-            )
+
+        normalized_test, normalized_train = zscore(
+            epoched_test=epoched_test,
+            epoched_train=epoched_train,
         )
-        del epoched_train, img_conditions_train
+        del epoched_test, epoched_train
+        gc.collect()
+
+        outputs = save_prepr(
+            subject_id=self.subject_id,
+            num_sessions=self.num_sessions,
+            save_dir=self.save_dir,
+            img_data_dir=self.img_data_dir,
+            whitened_test=normalized_test,
+            whitened_train=normalized_train,
+            img_conditions_train=img_conditions_train,
+            ch_names=ch_names,
+            times=times,
+        )
+        del normalized_test, normalized_train, img_conditions_train
         gc.collect()
         return outputs
 

@@ -14,8 +14,10 @@ sfreq: 250
 tmin: -0.2
 tmax: 1.0
 
-# MVNN normalization dimension
-# null uses the preprocessor default strategy
+# normalization mode for EEG data
+# time applies MVNN with covariance averaged across time points
+# epoch applies MVNN with covariance averaged across epochs
+# null disables MVNN and applies per-session channel z-score
 mvnn_dim: null
 
 # input raw EEG and image directories, plus the preprocessed output directory
