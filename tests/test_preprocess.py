@@ -1,10 +1,12 @@
 from typing import Any
 
 import numpy as np
+import pytest
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, open_dict
 
 from src.preprocess import preprocess
+from src.preprocessors import thingseeg2
 from src.preprocessors.thingseeg2 import mvnn
 
 
@@ -56,3 +58,27 @@ def test_mvnn_releases_input_sessions() -> None:
     assert epoched_train[0] is None
     assert whitened_test[0].shape == (2, 3, 2, 3)
     assert whitened_train[0].shape == (2, 3, 2, 3)
+
+
+def test_target_time_indices_selects_post_stimulus_window() -> None:
+    """Select exactly one second from stimulus onset instead of taking the tail."""
+    times = np.arange(-0.2, 1.004, 0.004)
+
+    indices = thingseeg2._target_time_indices(times=times, dsfreq=250)
+
+    selected_times = times[indices]
+    assert selected_times.shape == (250,)
+    assert selected_times[0] == pytest.approx(0.0)
+    assert selected_times[-1] == pytest.approx(0.996)
+
+
+def test_validate_metadata_lengths_rejects_misaligned_images() -> None:
+    """Reject image metadata that cannot align one-to-one with EEG condition rows."""
+    with pytest.raises(ValueError, match="training metadata"):
+        thingseeg2._validate_metadata_lengths(
+            partition="training",
+            expected_rows=2,
+            imgs=["image_a.jpg"],
+            labels=[0],
+            texts=["image a"],
+        )

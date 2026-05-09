@@ -56,6 +56,22 @@ def test_preprocess_config(cfg_preprocess: DictConfig) -> None:
     assert hasattr(preprocessor, "run")
 
 
+def test_extract_config(cfg_extract: DictConfig) -> None:
+    """Tests the extraction configuration provided by the `cfg_extract` fixture.
+
+    :param cfg_extract: A DictConfig containing a valid extraction configuration.
+    """
+    assert cfg_extract
+    assert cfg_extract.extract
+    assert cfg_extract.extract._target_.startswith("src.extractors.")
+
+    HydraConfig().set_config(cfg_extract)
+
+    extractor = hydra.utils.instantiate(cfg_extract.extract)
+
+    assert hasattr(extractor, "run")
+
+
 def test_preprocess_uses_global_thingseeg2_paths(cfg_preprocess: DictConfig) -> None:
     """Tests that THINGS-EEG2 preprocessing paths are centralized in `paths`.
 
@@ -67,6 +83,19 @@ def test_preprocess_uses_global_thingseeg2_paths(cfg_preprocess: DictConfig) -> 
     assert cfg_preprocess.preprocess.raw_data_dir == cfg_preprocess.paths.thingseeg2_raw_dir
     assert cfg_preprocess.preprocess.img_data_dir == cfg_preprocess.paths.thingseeg2_img_dir
     assert cfg_preprocess.preprocess.save_dir == cfg_preprocess.paths.thingseeg2_preprocessed_dir
+
+
+def test_extract_uses_global_thingseeg2_paths(cfg_extract: DictConfig) -> None:
+    """Tests that THINGS-EEG2 extraction paths are centralized in `paths`.
+
+    :param cfg_extract: A DictConfig containing a valid extraction configuration.
+    """
+    assert cfg_extract.paths.thingseeg2_preprocessed_dir
+    assert cfg_extract.paths.thingseeg2_img_dir
+    assert cfg_extract.paths.thingseeg2_clip_features_dir
+    assert cfg_extract.extract.prep_eeg_data_dir == cfg_extract.paths.thingseeg2_preprocessed_dir
+    assert cfg_extract.extract.save_dir == cfg_extract.paths.thingseeg2_clip_features_dir
+    assert cfg_extract.extract.model_cache_dir == cfg_extract.paths.clip_model_cache_dir
 
 
 def test_rich_progress_bar_uses_ascii_time_columns(cfg_train: DictConfig) -> None:

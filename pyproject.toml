@@ -24,6 +24,7 @@ dependencies = [
     "mne",
     "scipy",
     "scikit-learn",
+    "transformers",
 ]
 
 [tool.pytest.ini_options]

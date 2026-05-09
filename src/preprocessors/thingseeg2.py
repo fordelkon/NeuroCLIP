@@ -1,5 +1,6 @@
 import gc
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional, Union
@@ -200,11 +201,11 @@ def epoching(
                 sorted_data[cond_idx] = data[trial_idx]
             del data
 
-            n_timepoints = int(dsfreq)
-            sorted_data = sorted_data[:, :, :, -n_timepoints:]
+            time_indices = _target_time_indices(times=times, dsfreq=dsfreq)
+            sorted_data = sorted_data[:, :, :, time_indices]
             epoched_data.append(sorted_data)
             img_conditions.append(img_cond)
-            times = times[-n_timepoints:]
+            times = times[time_indices]
 
             progress.advance(session_task)
 
@@ -213,6 +214,19 @@ def epoching(
         f"[dim]{len(epoched_data)} sessions, shape {epoched_data[0].shape}[/dim]"
     )
     return epoched_data, img_conditions, ch_names, times
+
+
+def _target_time_indices(times: np.ndarray, dsfreq: float) -> np.ndarray:
+    """Return indices for the one-second post-stimulus window [0, 1)."""
+    n_timepoints = int(dsfreq)
+    tolerance = 0.5 / float(dsfreq)
+    candidate_indices = np.flatnonzero((times >= -tolerance) & (times < 1.0 - tolerance))
+    if candidate_indices.size < n_timepoints:
+        raise ValueError(
+            "Epoch does not contain enough post-stimulus samples. "
+            f"Expected {n_timepoints}, found {candidate_indices.size}."
+        )
+    return candidate_indices[:n_timepoints]
 
 
 def mvnn(
@@ -392,35 +406,45 @@ def _save_test_partition(
         shape=(n_test_images, n_total_reps, whitened_test[0].shape[2], whitened_test[0].shape[3]),
     )
 
-    for session_idx in range(num_sessions):
-        start_idx = session_idx * n_rep_per_session
-        end_idx = (session_idx + 1) * n_rep_per_session
-        merged_test[:, start_idx:end_idx] = whitened_test[session_idx].astype(
-            np.float32, copy=False
+    try:
+        for session_idx in range(num_sessions):
+            start_idx = session_idx * n_rep_per_session
+            end_idx = (session_idx + 1) * n_rep_per_session
+            merged_test[:, start_idx:end_idx] = whitened_test[session_idx].astype(
+                np.float32, copy=False
+            )
+            session_list[:, start_idx:end_idx] = session_idx
+            whitened_test[session_idx] = None
+
+        gc.collect()
+
+        imgs, labels, texts = _load_image_metadata(img_data_dir / "test_images")
+        _validate_metadata_lengths(
+            partition="test",
+            expected_rows=n_test_images,
+            imgs=imgs,
+            labels=labels,
+            texts=texts,
         )
-        session_list[:, start_idx:end_idx] = session_idx
-        whitened_test[session_idx] = None
-
-    gc.collect()
-
-    imgs, labels, texts = _load_image_metadata(img_data_dir / "test_images")
-    output_path = subject_save_dir / "test.pt"
-    torch.save(
-        {
-            "eeg": merged_test,
-            "label": np.tile(np.array(labels)[:, np.newaxis], (1, n_total_reps)),
-            "img": np.tile(np.array(imgs)[:, np.newaxis], (1, n_total_reps)),
-            "text": np.tile(np.array(texts)[:, np.newaxis], (1, n_total_reps)),
-            "session": session_list,
-            "ch_names": ch_names,
-            "times": times,
-        },
-        output_path,
-        pickle_protocol=5,
-    )
-    console.print(f"  [green]OK[/green] Saved test data: [dim]{merged_test.shape}[/dim]")
-    del merged_test
-    tmp_path.unlink(missing_ok=True)
+        output_path = subject_save_dir / "test.pt"
+        merged_shape = merged_test.shape
+        torch.save(
+            {
+                "eeg": merged_test,
+                "label": np.tile(np.array(labels)[:, np.newaxis], (1, n_total_reps)),
+                "img": np.tile(np.array(imgs)[:, np.newaxis], (1, n_total_reps)),
+                "text": np.tile(np.array(texts)[:, np.newaxis], (1, n_total_reps)),
+                "session": session_list,
+                "ch_names": ch_names,
+                "times": times,
+            },
+            output_path,
+            pickle_protocol=5,
+        )
+        console.print(f"  [green]OK[/green] Saved test data: [dim]{merged_shape}[/dim]")
+    finally:
+        del merged_test
+        tmp_path.unlink(missing_ok=True)
     return str(output_path)
 
 
@@ -437,7 +461,17 @@ def _save_training_partition(
     n_rep_per_train = whitened_train[0].shape[1]
     unique_conditions = np.unique(np.concatenate(img_conditions_train, axis=0))
     condition_to_idx = {int(cond): i for i, cond in enumerate(unique_conditions.tolist())}
-    n_total_reps = n_rep_per_train * 2
+    condition_counts = {
+        int(cond): int(np.count_nonzero(np.concatenate(img_conditions_train, axis=0) == cond))
+        for cond in unique_conditions
+    }
+    observed_condition_counts = set(condition_counts.values())
+    if len(observed_condition_counts) != 1:
+        raise RuntimeError(
+            "Training conditions are not repeated uniformly across sessions. "
+            f"Observed session counts: {sorted(observed_condition_counts)}."
+        )
+    n_total_reps = n_rep_per_train * observed_condition_counts.pop()
     session_list = np.empty((len(unique_conditions), n_total_reps), dtype=np.int16)
     rep_offsets = np.zeros(len(unique_conditions), dtype=np.int16)
 
@@ -454,47 +488,77 @@ def _save_training_partition(
         ),
     )
 
-    for session_idx in range(num_sessions):
-        for row_idx, cond in enumerate(img_conditions_train[session_idx]):
-            cond_idx = condition_to_idx[int(cond)]
-            start = int(rep_offsets[cond_idx])
-            end = start + n_rep_per_train
-            merged_train[cond_idx, start:end] = whitened_train[session_idx][row_idx].astype(
-                np.float32, copy=False
+    try:
+        for session_idx in range(num_sessions):
+            for row_idx, cond in enumerate(img_conditions_train[session_idx]):
+                cond_idx = condition_to_idx[int(cond)]
+                start = int(rep_offsets[cond_idx])
+                end = start + n_rep_per_train
+                merged_train[cond_idx, start:end] = whitened_train[session_idx][row_idx].astype(
+                    np.float32, copy=False
+                )
+                session_list[cond_idx, start:end] = session_idx
+                rep_offsets[cond_idx] = end
+
+            whitened_train[session_idx] = None
+            img_conditions_train[session_idx] = None
+
+        gc.collect()
+
+        if not np.all(rep_offsets == n_total_reps):
+            raise RuntimeError(
+                "Unexpected training repetition count per condition. "
+                f"Expected {n_total_reps}, got min={rep_offsets.min()}, max={rep_offsets.max()}."
             )
-            session_list[cond_idx, start:end] = session_idx
-            rep_offsets[cond_idx] = end
 
-        whitened_train[session_idx] = None
-        img_conditions_train[session_idx] = None
-
-    gc.collect()
-
-    if not np.all(rep_offsets == n_total_reps):
-        raise RuntimeError(
-            "Unexpected training repetition count per condition. "
-            f"Expected {n_total_reps}, got min={rep_offsets.min()}, max={rep_offsets.max()}."
+        imgs, labels, texts = _load_image_metadata(img_data_dir / "training_images")
+        _validate_metadata_lengths(
+            partition="training",
+            expected_rows=len(unique_conditions),
+            imgs=imgs,
+            labels=labels,
+            texts=texts,
         )
-
-    imgs, labels, texts = _load_image_metadata(img_data_dir / "training_images")
-    output_path = subject_save_dir / "training.pt"
-    torch.save(
-        {
-            "eeg": merged_train,
-            "label": np.tile(np.array(labels)[:, np.newaxis], (1, n_total_reps)),
-            "img": np.tile(np.array(imgs)[:, np.newaxis], (1, n_total_reps)),
-            "text": np.tile(np.array(texts)[:, np.newaxis], (1, n_total_reps)),
-            "session": session_list,
-            "ch_names": ch_names,
-            "times": times,
-        },
-        output_path,
-        pickle_protocol=5,
-    )
-    console.print(f"  [green]OK[/green] Saved train data: [dim]{merged_train.shape}[/dim]")
-    del merged_train
-    tmp_path.unlink(missing_ok=True)
+        output_path = subject_save_dir / "training.pt"
+        merged_shape = merged_train.shape
+        torch.save(
+            {
+                "eeg": merged_train,
+                "label": np.tile(np.array(labels)[:, np.newaxis], (1, n_total_reps)),
+                "img": np.tile(np.array(imgs)[:, np.newaxis], (1, n_total_reps)),
+                "text": np.tile(np.array(texts)[:, np.newaxis], (1, n_total_reps)),
+                "session": session_list,
+                "ch_names": ch_names,
+                "times": times,
+            },
+            output_path,
+            pickle_protocol=5,
+        )
+        console.print(f"  [green]OK[/green] Saved train data: [dim]{merged_shape}[/dim]")
+    finally:
+        del merged_train
+        tmp_path.unlink(missing_ok=True)
     return str(output_path)
+
+
+def _validate_metadata_lengths(
+    partition: str,
+    expected_rows: int,
+    imgs: Sequence[str],
+    labels: Sequence[int],
+    texts: Sequence[str],
+) -> None:
+    """Ensure image metadata aligns one-to-one with EEG condition rows."""
+    metadata_lengths = {
+        "images": len(imgs),
+        "labels": len(labels),
+        "texts": len(texts),
+    }
+    if len(set(metadata_lengths.values())) != 1 or len(imgs) != expected_rows:
+        raise ValueError(
+            f"{partition} metadata does not match EEG rows. "
+            f"Expected {expected_rows}, got {metadata_lengths}."
+        )
 
 
 def _load_image_metadata(image_dir: Path) -> tuple[list[str], list[int], list[str]]:

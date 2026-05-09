@@ -1,0 +1,19 @@
+_target_: src.extractors.thingseeg2.Thingseeg2ClipExtractor
+
+prep_eeg_data_dir: ${paths.thingseeg2_preprocessed_dir}
+save_dir: ${paths.thingseeg2_clip_features_dir}
+reference_subject_id: 1
+
+model_name: ViT-B-32
+model_id: null
+model_cache_dir: ${paths.clip_model_cache_dir}
+
+partitions:
+  - training
+  - test
+batch_size: 64
+device: auto
+feature_mode: pooled
+
+extract_image: true
+extract_text: true
