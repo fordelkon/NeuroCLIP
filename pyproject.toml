@@ -20,6 +20,8 @@ dependencies = [
     "rootutils",
     "pre-commit",
     "rich",
+    "ipykernel",
+    "ipywidgets",
     "pytest",
     "mne",
     "scipy",

@@ -116,6 +116,41 @@ def test_thingseeg2_dataset_can_average_repetitions_and_select_channels(tmp_path
     assert dataset.ch_names == ["Oz", "P7"]
 
 
+def test_thingseeg2_dataset_describes_loaded_structure(tmp_path: Path) -> None:
+    eeg_dir, clip_dir = _write_dataset_files(tmp_path)
+
+    dataset = ThingsEEG2Dataset(
+        eeg_data_dir=eeg_dir,
+        clip_features_dir=clip_dir,
+        subjects=["sub-01", "sub-02"],
+        partition="training",
+        average_reps=False,
+        selected_channels=["Oz", "P7"],
+    )
+
+    summary = dataset.describe()
+
+    assert summary == {
+        "partition": "training",
+        "subjects": ["sub-01", "sub-02"],
+        "n_subjects": 2,
+        "n_images": 2,
+        "n_reps": 3,
+        "n_channels": 2,
+        "n_timepoints": 5,
+        "length": 12,
+        "average_reps": False,
+        "eeg_shape": (2, 2, 3, 2, 5),
+        "label_shape": (2, 2, 3),
+        "selected_channels": ["Oz", "P7"],
+        "image_features_shape": (2, 2),
+        "text_features_shape": (2, 2),
+        "image_paths": 2,
+        "texts": 2,
+        "clip_features_dir": str(clip_dir),
+    }
+
+
 def test_thingseeg2_dataset_rejects_missing_selected_channels(tmp_path: Path) -> None:
     eeg_dir, clip_dir = _write_dataset_files(tmp_path)
 

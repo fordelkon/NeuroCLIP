@@ -212,6 +212,32 @@ class ThingsEEG2Dataset(Dataset):
                 f"{self.partition} EEG images."
             )
 
+    def describe(self) -> dict[str, Any]:
+        """Return a compact summary of the loaded EEG and feature structure."""
+        return {
+            "partition": self.partition,
+            "subjects": self.subjects,
+            "n_subjects": self.n_subjects,
+            "n_images": self.n_images,
+            "n_reps": self.n_reps,
+            "n_channels": self.n_channels,
+            "n_timepoints": self.n_timepoints,
+            "length": len(self),
+            "average_reps": self.average_reps,
+            "eeg_shape": tuple(self.eeg_data.shape),
+            "label_shape": tuple(self.labels.shape),
+            "selected_channels": self.ch_names,
+            "image_features_shape": (
+                tuple(self.image_features.shape) if self.image_features is not None else None
+            ),
+            "text_features_shape": (
+                tuple(self.text_features.shape) if self.text_features is not None else None
+            ),
+            "image_paths": len(self.image_paths),
+            "texts": len(self.feature_texts),
+            "clip_features_dir": str(self.clip_features_dir),
+        }
+
     def __len__(self) -> int:
         """Return the number of subject-image samples, optionally expanded by repetitions."""
         if self.average_reps:
