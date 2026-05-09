@@ -1,19 +1,34 @@
 _target_: src.extractors.thingseeg2.Thingseeg2ClipExtractor
 
+# read preprocessed THINGS-EEG2 data and save extracted CLIP features
 prep_eeg_data_dir: ${paths.thingseeg2_preprocessed_dir}
 save_dir: ${paths.thingseeg2_clip_features_dir}
+
+# subject used as the source of image paths, texts, and labels
 reference_subject_id: 1
 
+# Hugging Face CLIP model settings
+# null model_id uses the default model_name mapping
 model_name: ViT-B-32
 model_id: null
 model_cache_dir: ${paths.clip_model_cache_dir}
 
+# partitions to extract, matching preprocessed output file names
 partitions:
   - training
   - test
+
+# inference batch size, lower this when GPU memory is limited
 batch_size: 64
+
+# device for inference, auto uses all visible CUDA devices when available
 device: auto
+
+# feature mode for saved CLIP outputs
+# pooled saves projected global features
+# last_hidden_state_no_cls saves token features without CLS
 feature_mode: pooled
 
+# toggle image and text feature extraction independently
 extract_image: true
 extract_text: true

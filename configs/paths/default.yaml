@@ -7,10 +7,19 @@ root_dir: ${oc.env:PROJECT_ROOT}
 data_dir: ${paths.root_dir}/data/
 
 # THINGS-EEG2 dataset paths shared by preprocessing and training configs
+# path to raw THINGS-EEG2 EEG files
 thingseeg2_raw_dir: ${paths.data_dir}/thingseeg2-eegs
+
+# path to THINGS-EEG2 image files
 thingseeg2_img_dir: ${paths.data_dir}/thingseeg2-images
+
+# path to preprocessed THINGS-EEG2 EEG output
 thingseeg2_preprocessed_dir: ${paths.data_dir}/thingseeg2-eeg2-250hz
+
+# path to extracted THINGS-EEG2 CLIP features
 thingseeg2_clip_features_dir: ${paths.data_dir}/thingseeg2-clip-features
+
+# path to Hugging Face CLIP model cache
 clip_model_cache_dir: ${paths.data_dir}/clip-cache
 
 # path to logging directory
