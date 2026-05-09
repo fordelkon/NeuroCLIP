@@ -23,6 +23,21 @@ def test_train_config(cfg_train: DictConfig) -> None:
     hydra.utils.instantiate(cfg_train.trainer)
 
 
+def test_train_config_supports_thingseeg2_nice() -> None:
+    """Tests that THINGS-EEG2 can be paired with the NICE CLIP module."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=["data=thingseeg2", "model=nice"],
+        )
+
+    assert cfg.data.average_reps is True
+    assert cfg.model._target_ == "src.models.clipv1_module.ClipV1LitModule"
+    assert cfg.model.eegnet._target_ == "src.models.components.simple_nice.NICE"
+    assert cfg.model.eegnet.num_channels == 17
+    assert cfg.model.eegnet.proj_dim == 512
+
+
 def test_eval_config(cfg_eval: DictConfig) -> None:
     """Tests the evaluation configuration provided by the `cfg_eval` pytest fixture.
 

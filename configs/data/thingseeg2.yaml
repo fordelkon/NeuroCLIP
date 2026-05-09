@@ -32,9 +32,11 @@ drop_last: False
 k_fold: null
 fold_idx: 0
 
-# Dataset loading options.
-average_reps: False
-selected_channels: null
+# Dataset loading options. Average repeated EEG trials to keep one EEG sample
+# aligned with one image/text feature row.
+average_reps: True
+selected_channels:
+  [P7, P5, P3, P1, Pz, P2, P4, P6, P8, PO7, PO3, POz, PO4, PO8, O1, Oz, O2]
 
 # Offline CLIP feature location is resolved as:
 # clip_features_dir / model_name / resolved_model_id / feature_mode.
