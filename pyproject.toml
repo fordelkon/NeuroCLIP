@@ -27,6 +27,7 @@ dependencies = [
     "scipy",
     "scikit-learn",
     "transformers",
+    "open-clip-torch",
 ]
 
 [tool.pytest.ini_options]
