@@ -1,0 +1,43 @@
+_target_: src.data.thingseeg2_datamodule.ThingsEEG2DataModule
+
+# Directories produced by the preprocess and extract pipelines.
+eeg_data_dir: ${paths.thingseeg2_preprocessed_dir}
+clip_features_dir: ${paths.thingseeg2_clip_features_dir}
+
+# Subject ids or labels. In intra-subject mode they are used for train/val/test;
+# in cross-subject mode they are held-out test subjects and the remaining
+# THINGS-EEG2 subjects are used for train/val.
+subjects:
+  - sub-01
+
+# intra-subject splits the training partition into train/val and tests on the
+# same subjects; cross-subject trains on the remaining subjects and tests on
+# the held-out subjects listed above.
+experiment_setting: intra-subject
+
+# Train/validation split for the training partition. Values can be lengths or
+# fractions accepted by torch.utils.data.random_split.
+train_val_split: [0.95, 0.05]
+
+# Batch sizes should be divisible by the number of distributed devices.
+train_batch_size: 256
+val_batch_size: 200
+test_batch_size: 200
+num_workers: 0
+pin_memory: False
+drop_last: False
+
+# Set k_fold to an integer to replace train_val_split with deterministic K-Fold
+# validation over the training partition.
+k_fold: null
+fold_idx: 0
+
+# Dataset loading options.
+average_reps: False
+selected_channels: null
+
+# Offline CLIP feature location is resolved as:
+# clip_features_dir / model_name / resolved_model_id / feature_mode.
+model_name: ViT-B-32
+model_id: null
+feature_mode: pooled
