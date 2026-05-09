@@ -1,0 +1,34 @@
+_target_: src.models.clipv1_module.ClipV1LitModule
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.0002
+  weight_decay: 0.0001
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  factor: 0.1
+  patience: 10
+  mode: min
+
+eegnet:
+  _target_: src.models.components.simple_nice.NICE
+  emb_size: 40
+  num_channels: 17
+  emb_dim: 1440
+  proj_dim: 512
+  p: 0.5
+  ts_filters: 40
+  temporal_kernel: 25
+  pool_kernel: 51
+  pool_stride: 5
+
+retrieval_k_list: [2, 4, 10, 200]
+modality: eeg2img
+loss_type: cliploss
+alpha: 0.99
+
+# compile model for faster training with pytorch 2.0
+compile: false
