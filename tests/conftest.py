@@ -29,6 +29,10 @@ def cfg_train_global() -> DictConfig:
             cfg.trainer.devices = 1
             cfg.data.num_workers = 0
             cfg.data.pin_memory = False
+            cfg.callbacks.model_checkpoint.monitor = "val/acc"
+            cfg.callbacks.model_checkpoint.mode = "max"
+            cfg.callbacks.early_stopping.monitor = "val/acc"
+            cfg.callbacks.early_stopping.mode = "max"
             cfg.extras.print_config = False
             cfg.extras.enforce_tags = False
             cfg.logger = None
