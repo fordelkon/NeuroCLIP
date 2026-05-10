@@ -6,7 +6,11 @@ from tests.helpers.run_if import RunIf
 from tests.helpers.run_sh_command import run_sh_command
 
 startfile = "src/train.py"
-overrides = ["logger=[]"]
+overrides = [
+    "callbacks.model_checkpoint.monitor=val/acc",
+    "callbacks.early_stopping.monitor=val/acc",
+    "logger=[]",
+]
 
 
 @RunIf(sh=True)

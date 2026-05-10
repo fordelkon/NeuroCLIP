@@ -1,5 +1,3 @@
-from typing import List
-
 import pytest
 
 from tests.helpers.package_available import _SH_AVAILABLE
@@ -19,4 +17,4 @@ def run_sh_command(command: list[str]) -> None:
     except sh.ErrorReturnCode as e:
         msg = e.stderr.decode()
     if msg:
-        pytest.fail(msg=msg)
+        pytest.fail(msg)
