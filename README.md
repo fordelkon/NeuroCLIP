@@ -29,14 +29,14 @@ ______________________________________________________________________
 uv sync -> unzip datasets -> preprocess EEG -> extract CLIP features -> train -> evaluate
 ```
 
-| Stage | What happens                                       | Main command                               |
-| ----- | -------------------------------------------------- | ------------------------------------------ |
-| Setup | Create the Python environment with uv.             | `uv sync --extra cpu`                      |
-| Data  | Unzip THINGS-EEG2 EEG and image archives.          | `scripts/*/unzip.*`                        |
-| EEG   | Convert raw EEG into normalized `.pt` tensors.     | `scripts/*/preprocess.*`                   |
-| CLIP  | Extract image/text features aligned with EEG rows. | `scripts/*/extract.*`                      |
-| Train | Fit a Lightning model with Hydra overrides.        | `uv run --no-sync python src/train.py ...` |
-| Eval  | Evaluate a saved checkpoint.                       | `uv run --no-sync python src/eval.py ...`  |
+| Stage | What happens                                       | Main command                                                                                                                   |
+| ----- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Setup | Create the Python environment with uv.             | `uv sync --extra cpu`                                                                                                          |
+| Data  | Unzip THINGS-EEG2 EEG and image archives.          | `scripts/*/unzip.*`                                                                                                            |
+| EEG   | Convert raw EEG into normalized `.pt` tensors.     | `scripts/*/preprocess.*`                                                                                                       |
+| CLIP  | Extract image/text features aligned with EEG rows. | `scripts/*/extract.*`                                                                                                          |
+| Train | Fit a Lightning model with Hydra overrides.        | `uv run --no-sync python src/train.py callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc ...` |
+| Eval  | Evaluate a saved checkpoint.                       | `uv run --no-sync python src/eval.py ...`                                                                                      |
 
 **Default data root:** `./data/`
 **Primary configs:** `configs/train.yaml`, `configs/eval.yaml`,
@@ -505,8 +505,13 @@ through as Hydra overrides.
 Main entrypoint:
 
 ```bash
-uv run --no-sync python src/train.py
+uv run --no-sync python src/train.py callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
 ```
+
+The default training config uses `data=mnist` and `model=mnist`, whose validation
+metric is `val/acc`. The default callback config is tuned for NICE/CLIP training
+and monitors `val/top1_acc`, so MNIST runs need the callback monitor overrides
+shown above.
 
 Train NICE on THINGS-EEG2 with a 5-fold validation split:
 
@@ -517,14 +522,14 @@ uv run --no-sync python src/train.py data=thingseeg2 data.k_fold=5 data.fold_idx
 Common examples:
 
 ```bash
-uv run --no-sync python src/train.py trainer=cpu
-uv run --no-sync python src/train.py trainer=gpu
-uv run --no-sync python src/train.py trainer=ddp trainer.devices=4
-uv run --no-sync python src/train.py logger=tensorboard
-uv run --no-sync python src/train.py experiment=example
+uv run --no-sync python src/train.py trainer=cpu callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
+uv run --no-sync python src/train.py trainer=gpu callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
+uv run --no-sync python src/train.py trainer=ddp trainer.devices=4 callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
+uv run --no-sync python src/train.py logger=tensorboard callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
+uv run --no-sync python src/train.py experiment=example callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
 uv run --no-sync python src/train.py data=thingseeg2 model=nice
-uv run --no-sync python src/train.py trainer.max_epochs=20
-uv run --no-sync python src/train.py ckpt_path="/path/to/checkpoint.ckpt"
+uv run --no-sync python src/train.py trainer.max_epochs=20 callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
+uv run --no-sync python src/train.py ckpt_path="/path/to/checkpoint.ckpt" callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
 ```
 
 The default training config is `configs/train.yaml`. Hydra overrides can select
@@ -534,43 +539,43 @@ configs can be overridden with dotted keys.
 
 Common training overrides:
 
-| Override                                | Purpose                                                             | Examples                                                                         |
-| --------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `data`                                  | Select the datamodule config group.                                 | `data=mnist`, `data=thingseeg2`                                                  |
-| `model`                                 | Select the Lightning module config group.                           | `model=mnist`, `model=nice`                                                      |
-| `trainer`                               | Select the Lightning trainer preset.                                | `trainer=cpu`, `trainer=gpu`, `trainer=ddp`                                      |
-| `logger`                                | Select a logger config group.                                       | `logger=tensorboard`, `logger=wandb`, `logger=csv`                               |
-| `experiment`                            | Load an experiment config that overrides multiple groups.           | `experiment=example`                                                             |
-| `data.subjects`                         | Select THINGS-EEG2 subjects.                                        | `data.subjects=[sub-01]`, `data.subjects=[sub-01,sub-02]`                        |
-| `data.experiment_setting`               | Choose intra-subject or cross-subject splitting.                    | `data.experiment_setting=intra-subject`, `data.experiment_setting=cross-subject` |
-| `data.train_val_split`                  | Set train/validation split when K-Fold is disabled.                 | `data.train_val_split=[0.9,0.1]`                                                 |
-| `data.k_fold`                           | Enable deterministic K-Fold validation over the training partition. | `data.k_fold=5`                                                                  |
-| `data.fold_idx`                         | Select the active fold. It is zero-based.                           | `data.fold_idx=0`, `data.fold_idx=1`                                             |
-| `data.train_batch_size`                 | Set global training batch size.                                     | `data.train_batch_size=128`                                                      |
-| `data.val_batch_size`                   | Set validation batch size.                                          | `data.val_batch_size=200`                                                        |
-| `data.test_batch_size`                  | Set test batch size.                                                | `data.test_batch_size=200`                                                       |
-| `data.num_workers`                      | Set dataloader worker count.                                        | `data.num_workers=4`                                                             |
-| `data.average_reps`                     | Average repeated EEG trials before training.                        | `data.average_reps=true`, `data.average_reps=false`                              |
-| `data.selected_channels`                | Override the EEG channel list used by THINGS-EEG2.                  | `data.selected_channels=[P7,P5,P3]`                                              |
-| `model.loss_type`                       | Select CLIP alignment loss for NICE.                                | `model.loss_type=cliploss`, `model.loss_type=sigliploss`                         |
-| `model.retrieval_k_list`                | Set test retrieval k values.                                        | `model.retrieval_k_list=[2,4,10,200]`                                            |
-| `model.optimizer.lr`                    | Set optimizer learning rate.                                        | `model.optimizer.lr=0.0001`                                                      |
-| `model.optimizer.weight_decay`          | Set optimizer weight decay.                                         | `model.optimizer.weight_decay=0.0001`                                            |
-| `model.eegnet.*`                        | Tune NICE EEG network parameters.                                   | `model.eegnet.emb_size=40`, `model.eegnet.p=0.5`                                 |
-| `trainer.max_epochs`                    | Set maximum training epochs.                                        | `trainer.max_epochs=100`                                                         |
-| `trainer.devices`                       | Set number of devices.                                              | `trainer.devices=1`, `trainer.devices=4`                                         |
-| `trainer.precision`                     | Enable mixed precision when supported.                              | `trainer.precision=16`                                                           |
-| `trainer.check_val_every_n_epoch`       | Set validation frequency in epochs.                                 | `trainer.check_val_every_n_epoch=1`                                              |
-| `callbacks.early_stopping.patience`     | Set early stopping patience.                                        | `callbacks.early_stopping.patience=20`                                           |
-| `callbacks.early_stopping.monitor`      | Set early stopping metric.                                          | `callbacks.early_stopping.monitor=val/top1_acc`                                  |
-| `callbacks.model_checkpoint.monitor`    | Set checkpoint selection metric.                                    | `callbacks.model_checkpoint.monitor=val/top1_acc`                                |
-| `callbacks.model_checkpoint.save_top_k` | Keep more best checkpoints.                                         | `callbacks.model_checkpoint.save_top_k=3`                                        |
-| `paths.thingseeg2_preprocessed_dir`     | Point training at preprocessed EEG tensors.                         | `paths.thingseeg2_preprocessed_dir=/data/thingseeg2-preprocessed`                |
-| `paths.thingseeg2_clip_features_dir`    | Point training at extracted CLIP features.                          | `paths.thingseeg2_clip_features_dir=/data/thingseeg2-clip-features`              |
-| `ckpt_path`                             | Resume from a checkpoint.                                           | `ckpt_path=/path/to/last.ckpt`                                                   |
-| `seed`                                  | Set RNG seed.                                                       | `seed=42`                                                                        |
-| `train`                                 | Skip fitting when only test/eval behavior is needed.                | `train=false`                                                                    |
-| `test`                                  | Enable or disable the final test pass after training.               | `test=true`, `test=false`                                                        |
+| Override                                | Purpose                                                                                    | Examples                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `data`                                  | Select the datamodule config group.                                                        | `data=mnist`, `data=thingseeg2`                                                  |
+| `model`                                 | Select the Lightning module config group.                                                  | `model=mnist`, `model=nice`                                                      |
+| `trainer`                               | Select the Lightning trainer preset.                                                       | `trainer=cpu`, `trainer=gpu`, `trainer=ddp`                                      |
+| `logger`                                | Select a logger config group.                                                              | `logger=tensorboard`, `logger=wandb`, `logger=csv`                               |
+| `experiment`                            | Load an experiment config that overrides multiple groups.                                  | `experiment=example`                                                             |
+| `data.subjects`                         | Select THINGS-EEG2 subjects.                                                               | `data.subjects=[sub-01]`, `data.subjects=[sub-01,sub-02]`                        |
+| `data.experiment_setting`               | Choose intra-subject or cross-subject splitting.                                           | `data.experiment_setting=intra-subject`, `data.experiment_setting=cross-subject` |
+| `data.train_val_split`                  | Set train/validation split when K-Fold is disabled.                                        | `data.train_val_split=[0.9,0.1]`                                                 |
+| `data.k_fold`                           | Enable deterministic K-Fold validation over the training partition.                        | `data.k_fold=5`                                                                  |
+| `data.fold_idx`                         | Select the active fold. It is zero-based.                                                  | `data.fold_idx=0`, `data.fold_idx=1`                                             |
+| `data.train_batch_size`                 | Set global training batch size.                                                            | `data.train_batch_size=128`                                                      |
+| `data.val_batch_size`                   | Set validation batch size.                                                                 | `data.val_batch_size=200`                                                        |
+| `data.test_batch_size`                  | Set test batch size.                                                                       | `data.test_batch_size=200`                                                       |
+| `data.num_workers`                      | Set dataloader worker count.                                                               | `data.num_workers=4`                                                             |
+| `data.average_reps`                     | Average repeated EEG trials before training.                                               | `data.average_reps=true`, `data.average_reps=false`                              |
+| `data.selected_channels`                | Override the EEG channel list used by THINGS-EEG2.                                         | `data.selected_channels=[P7,P5,P3]`                                              |
+| `model.loss_type`                       | Select CLIP alignment loss for NICE.                                                       | `model.loss_type=cliploss`, `model.loss_type=sigliploss`                         |
+| `model.retrieval_k_list`                | Set test retrieval k values.                                                               | `model.retrieval_k_list=[2,4,10,200]`                                            |
+| `model.optimizer.lr`                    | Set optimizer learning rate.                                                               | `model.optimizer.lr=0.0001`                                                      |
+| `model.optimizer.weight_decay`          | Set optimizer weight decay.                                                                | `model.optimizer.weight_decay=0.0001`                                            |
+| `model.eegnet.*`                        | Tune NICE EEG network parameters.                                                          | `model.eegnet.emb_size=40`, `model.eegnet.p=0.5`                                 |
+| `trainer.max_epochs`                    | Set maximum training epochs.                                                               | `trainer.max_epochs=100`                                                         |
+| `trainer.devices`                       | Set number of devices.                                                                     | `trainer.devices=1`, `trainer.devices=4`                                         |
+| `trainer.precision`                     | Enable mixed precision when supported.                                                     | `trainer.precision=16`                                                           |
+| `trainer.check_val_every_n_epoch`       | Set validation frequency in epochs.                                                        | `trainer.check_val_every_n_epoch=1`                                              |
+| `callbacks.early_stopping.patience`     | Set early stopping patience.                                                               | `callbacks.early_stopping.patience=20`                                           |
+| `callbacks.early_stopping.monitor`      | Set early stopping metric. Use `val/acc` for MNIST and `val/top1_acc` for NICE/CLIP.       | `callbacks.early_stopping.monitor=val/acc`                                       |
+| `callbacks.model_checkpoint.monitor`    | Set checkpoint selection metric. Use `val/acc` for MNIST and `val/top1_acc` for NICE/CLIP. | `callbacks.model_checkpoint.monitor=val/acc`                                     |
+| `callbacks.model_checkpoint.save_top_k` | Keep more best checkpoints.                                                                | `callbacks.model_checkpoint.save_top_k=3`                                        |
+| `paths.thingseeg2_preprocessed_dir`     | Point training at preprocessed EEG tensors.                                                | `paths.thingseeg2_preprocessed_dir=/data/thingseeg2-preprocessed`                |
+| `paths.thingseeg2_clip_features_dir`    | Point training at extracted CLIP features.                                                 | `paths.thingseeg2_clip_features_dir=/data/thingseeg2-clip-features`              |
+| `ckpt_path`                             | Resume from a checkpoint.                                                                  | `ckpt_path=/path/to/last.ckpt`                                                   |
+| `seed`                                  | Set RNG seed.                                                                              | `seed=42`                                                                        |
+| `train`                                 | Skip fitting when only test/eval behavior is needed.                                       | `train=false`                                                                    |
+| `test`                                  | Enable or disable the final test pass after training.                                      | `test=true`, `test=false`                                                        |
 
 When using `data.k_fold`, `data.fold_idx` must be in `[0, data.k_fold - 1]`.
 For distributed training, keep batch sizes divisible by the total number of
