@@ -1,4 +1,5 @@
 import hydra
+import pytest
 from hydra.core.hydra_config import HydraConfig
 from lightning.pytorch.callbacks.progress.rich_progress import RichProgressBar
 from omegaconf import DictConfig
@@ -36,6 +37,103 @@ def test_train_config_supports_thingseeg2_nice() -> None:
     assert cfg.model.eegnet._target_ == "src.models.components.simple_nice.NICE"
     assert cfg.model.eegnet.num_channels == 17
     assert cfg.model.eegnet.proj_dim == 512
+
+
+@pytest.mark.parametrize(
+    ("experiment_name", "model_target"),
+    [
+        ("nice_experiment", "src.models.components.simple_nice.NICE"),
+        ("atms_experiment", "src.models.components.simple_atms.ATMS"),
+        ("flatnet_experiment", "src.models.components.simple_nice.FlattenProjEEG"),
+    ],
+)
+def test_thingseeg2_model_experiments_select_matching_model(
+    experiment_name: str,
+    model_target: str,
+) -> None:
+    """Tests that each THINGS-EEG2 model has an experiment entrypoint."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        cfg = hydra.compose(config_name="train.yaml", overrides=[f"experiment={experiment_name}"])
+
+    assert cfg.data._target_ == "src.data.thingseeg2_datamodule.ThingsEEG2DataModule"
+    assert cfg.model.eegnet._target_ == model_target
+    assert cfg.optimized_metric == "val/top1_acc_best"
+
+
+@pytest.mark.parametrize(
+    ("search_name", "expected_params"),
+    [
+        (
+            "nice_optuna",
+            {
+                "model.optimizer.lr",
+                "model.optimizer.weight_decay",
+                "model.eegnet.ts_filters",
+                "model.eegnet.p",
+            },
+        ),
+        (
+            "atms_optuna",
+            {
+                "model.optimizer.lr",
+                "model.optimizer.weight_decay",
+                "model.eegnet.nhead",
+                "model.eegnet.num_layers",
+                "model.eegnet.ts_filters",
+                "model.eegnet.p",
+            },
+        ),
+        (
+            "flatnet_optuna",
+            {
+                "model.optimizer.lr",
+                "model.optimizer.weight_decay",
+                "model.eegnet.p",
+            },
+        ),
+    ],
+)
+def test_thingseeg2_optuna_searches_shape_safe_model_params(
+    search_name: str,
+    expected_params: set[str],
+) -> None:
+    """Tests that CLIP model sweeps only tune independent, source-backed parameters."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        cfg = hydra.compose(
+            config_name="train.yaml",
+            return_hydra_config=True,
+            overrides=[f"hparams_search={search_name}"],
+        )
+
+    params = cfg.hydra.sweeper.params
+
+    assert set(params) == expected_params
+    assert "model.eegnet.emb_size" not in params
+    assert "model.eegnet.emb_dim" not in params
+    assert "model.eegnet.temporal_kernel" not in params
+    assert "model.eegnet.pool_kernel" not in params
+    assert "model.eegnet.pool_stride" not in params
+
+
+def test_atms_optuna_nhead_choices_divide_sequence_length() -> None:
+    """Tests that ATMS nhead search values are valid for the configured sequence length."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        cfg = hydra.compose(
+            config_name="train.yaml",
+            return_hydra_config=True,
+            overrides=["model=atms", "hparams_search=atms_optuna"],
+        )
+
+    nhead_choices = {
+        int(choice.strip())
+        for choice in cfg.hydra.sweeper.params["model.eegnet.nhead"]
+        .removeprefix("choice(")
+        .removesuffix(")")
+        .split(",")
+    }
+
+    assert nhead_choices
+    assert all(cfg.model.eegnet.sequence_length % nhead == 0 for nhead in nhead_choices)
 
 
 def test_train_config_supports_thingseeg2_flatnet() -> None:

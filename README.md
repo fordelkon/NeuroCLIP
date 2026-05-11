@@ -17,6 +17,7 @@ training, and evaluation.
 [Overview](#overview) |
 [Quickstart](#quickstart) |
 [Detailed Run Guide](#detailed-run-guide) |
+[Parameter Sweeps](#parameter-sweeps) |
 [Checks](#checks)
 
 </div>
@@ -545,7 +546,8 @@ Common training overrides:
 | `model`                                 | Select the Lightning module config group.                                                  | `model=mnist`, `model=nice`                                                      |
 | `trainer`                               | Select the Lightning trainer preset.                                                       | `trainer=cpu`, `trainer=gpu`, `trainer=ddp`                                      |
 | `logger`                                | Select a logger config group.                                                              | `logger=tensorboard`, `logger=wandb`, `logger=csv`                               |
-| `experiment`                            | Load an experiment config that overrides multiple groups.                                  | `experiment=example`                                                             |
+| `experiment`                            | Load an experiment config that overrides multiple groups.                                  | `experiment=example`, `experiment=nice_experiment`                               |
+| `hparams_search`                        | Load a Hydra/Optuna sweep config. Use with `-m`.                                           | `hparams_search=nice_optuna`, `hparams_search=atms_optuna`                       |
 | `data.subjects`                         | Select THINGS-EEG2 subjects.                                                               | `data.subjects=[sub-01]`, `data.subjects=[sub-01,sub-02]`                        |
 | `data.experiment_setting`               | Choose intra-subject or cross-subject splitting.                                           | `data.experiment_setting=intra-subject`, `data.experiment_setting=cross-subject` |
 | `data.train_val_split`                  | Set train/validation split when K-Fold is disabled.                                        | `data.train_val_split=[0.9,0.1]`                                                 |
@@ -561,7 +563,7 @@ Common training overrides:
 | `model.retrieval_k_list`                | Set test retrieval k values.                                                               | `model.retrieval_k_list=[2,4,10,200]`                                            |
 | `model.optimizer.lr`                    | Set optimizer learning rate.                                                               | `model.optimizer.lr=0.0001`                                                      |
 | `model.optimizer.weight_decay`          | Set optimizer weight decay.                                                                | `model.optimizer.weight_decay=0.0001`                                            |
-| `model.eegnet.*`                        | Tune NICE EEG network parameters.                                                          | `model.eegnet.emb_size=40`, `model.eegnet.p=0.5`                                 |
+| `model.eegnet.*`                        | Tune EEG encoder parameters. Some dimensions are shape-coupled; see Parameter Sweeps.      | `model.eegnet.p=0.5`, `model.eegnet.ts_filters=40`                               |
 | `trainer.max_epochs`                    | Set maximum training epochs.                                                               | `trainer.max_epochs=100`                                                         |
 | `trainer.devices`                       | Set number of devices.                                                                     | `trainer.devices=1`, `trainer.devices=4`                                         |
 | `trainer.precision`                     | Enable mixed precision when supported.                                                     | `trainer.precision=16`                                                           |
@@ -580,6 +582,52 @@ Common training overrides:
 When using `data.k_fold`, `data.fold_idx` must be in `[0, data.k_fold - 1]`.
 For distributed training, keep batch sizes divisible by the total number of
 devices.
+
+### Parameter Sweeps
+
+Hydra multirun and Optuna sweep configs live under `configs/hparams_search/`.
+Use them together with an `experiment` config so the sweep selects the matching
+data/model setup before sampling hyperparameters.
+
+Available sweep entrypoints:
+
+| Model   | Experiment                      | Sweep Config                    | Optimized Metric    |
+| ------- | ------------------------------- | ------------------------------- | ------------------- |
+| MNIST   | `experiment=example`            | `hparams_search=mnist_optuna`   | `val/acc_best`      |
+| NICE    | `experiment=nice_experiment`    | `hparams_search=nice_optuna`    | `val/top1_acc_best` |
+| ATMS    | `experiment=atms_experiment`    | `hparams_search=atms_optuna`    | `val/top1_acc_best` |
+| FlatNet | `experiment=flatnet_experiment` | `hparams_search=flatnet_optuna` | `val/top1_acc_best` |
+
+Run a sweep with `-m`:
+
+```bash
+uv run --no-sync python src/train.py -m hparams_search=nice_optuna experiment=nice_experiment trainer=gpu
+uv run --no-sync python src/train.py -m hparams_search=atms_optuna experiment=atms_experiment trainer=gpu
+uv run --no-sync python src/train.py -m hparams_search=flatnet_optuna experiment=flatnet_experiment trainer=gpu
+```
+
+Useful sweep overrides:
+
+```bash
+uv run --no-sync python src/train.py -m hparams_search=nice_optuna experiment=nice_experiment hydra.sweeper.n_trials=50 hydra.sweeper.n_jobs=2
+uv run --no-sync python src/train.py -m hparams_search=atms_optuna experiment=atms_experiment hydra.sweep.dir=logs/sweeps/atms hydra.sweeper.study_name=atms_v1
+```
+
+The THINGS-EEG2 sweeps only include parameters that are exposed by the model
+constructors and can be changed independently:
+
+| Sweep            | Tuned Parameters                                                                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nice_optuna`    | `model.optimizer.lr`, `model.optimizer.weight_decay`, `model.eegnet.ts_filters`, `model.eegnet.p`                                                  |
+| `atms_optuna`    | `model.optimizer.lr`, `model.optimizer.weight_decay`, `model.eegnet.nhead`, `model.eegnet.num_layers`, `model.eegnet.ts_filters`, `model.eegnet.p` |
+| `flatnet_optuna` | `model.optimizer.lr`, `model.optimizer.weight_decay`, `model.eegnet.p`                                                                             |
+
+Do not add `model.eegnet.emb_size`, `temporal_kernel`, `pool_kernel`, or
+`pool_stride` to the NICE/ATMS sweep space unless `model.eegnet.emb_dim` is
+updated consistently. Those encoder parameters change the flattened feature
+dimension that feeds the projection head. ATMS `model.eegnet.nhead` choices must
+also divide `model.eegnet.sequence_length`; the default sweep uses values that
+divide `250`.
 
 ### Step 9 Details: Evaluate
 

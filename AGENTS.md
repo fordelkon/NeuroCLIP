@@ -80,11 +80,14 @@ Platform script wrappers:
 - The default training config uses `data=mnist` and `model=mnist`.
 - The default callback config is tuned for NICE/CLIP metrics and monitors `val/top1_acc`; MNIST runs usually need `callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc`.
 - THINGS-EEG2 CLIP training uses `configs/model/nice.yaml` or `configs/model/atms.yaml`.
+- THINGS-EEG2 experiment entrypoints are `experiment=nice_experiment`, `experiment=atms_experiment`, and `experiment=flatnet_experiment`.
 - `model=nice` uses `src.models.components.simple_nice.NICE`.
 - `model=atms` uses `src.models.components.simple_atms.ATMS`.
 - ATMS defaults to `model.eegnet.use_subject_embedding=false`, matching intra-subject runs. For cross-subject ATMS experiments, enable it explicitly with `model.eegnet.use_subject_embedding=true`.
 - `src.models.clipv1_module.ClipV1LitModule` owns CLIP-style loss, retrieval metrics, and optimizer/scheduler wiring for NICE and ATMS.
 - Dataset batches include `subject_id`; only subject-aware EEG nets should consume it.
+- Hyperparameter sweeps live in `configs/hparams_search/` and should be paired with the matching experiment config, for example `-m hparams_search=nice_optuna experiment=nice_experiment`.
+- Keep sweep parameters source-backed and shape-safe. Do not add NICE/ATMS `model.eegnet.emb_size`, `temporal_kernel`, `pool_kernel`, or `pool_stride` to a sweep unless `model.eegnet.emb_dim` is updated consistently. ATMS `model.eegnet.nhead` choices must divide `model.eegnet.sequence_length`.
 
 Useful training examples:
 
@@ -94,6 +97,8 @@ uv run --no-sync python src/train.py data=thingseeg2 model=nice trainer=gpu
 uv run --no-sync python src/train.py data=thingseeg2 model=atms trainer=gpu
 uv run --no-sync python src/train.py data=thingseeg2 data.experiment_setting=cross-subject data.subjects=[sub-01] model=atms model.eegnet.use_subject_embedding=true trainer=gpu
 uv run --no-sync python src/train.py data=thingseeg2 data.k_fold=5 data.fold_idx=1 model=nice model.loss_type=cliploss trainer=gpu trainer.max_epochs=100 callbacks.early_stopping.patience=20
+uv run --no-sync python src/train.py -m hparams_search=nice_optuna experiment=nice_experiment trainer=gpu
+uv run --no-sync python src/train.py -m hparams_search=atms_optuna experiment=atms_experiment trainer=gpu
 ```
 
 Useful evaluation examples:

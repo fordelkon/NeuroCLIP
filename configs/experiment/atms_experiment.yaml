@@ -1,0 +1,23 @@
+# @package _global_
+
+# THINGS-EEG2 ATMS experiment.
+# Run with:
+# python train.py experiment=atms_experiment
+
+defaults:
+  - override /data: thingseeg2
+  - override /model: atms
+  - override /callbacks: default
+  - override /trainer: default
+
+tags: ["thingseeg2", "atms", "eeg2clip"]
+
+seed: 12345
+optimized_metric: "val/top1_acc_best"
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "thingseeg2_atms"
+  aim:
+    experiment: "thingseeg2_atms"
