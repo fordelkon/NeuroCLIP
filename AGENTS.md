@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Repository-specific instructions for Codex-style agents working in this project.
+Repository-specific instructions for Codex-style agents working in NeuroCLIP.
 
 ## General Workflow
 
@@ -10,7 +10,7 @@ Repository-specific instructions for Codex-style agents working in this project.
 - Use `apply_patch` for manual file edits.
 - Do not revert user changes or unrelated dirty worktree changes.
 - Prefer English comments in configuration and code documentation unless the user asks otherwise.
-- This project uses Lightning, Hydra, uv, and THINGS-EEG2 workflows. Prefer existing Hydra config groups, script wrappers, and utility modules over duplicating logic.
+- This project uses Lightning, Hydra, uv, THINGS-EEG2, and EEG-to-CLIP training workflows. Prefer existing Hydra config groups, script wrappers, model components, and utility modules over duplicating logic.
 - Use Hydra command-line overrides for one-off runs, and keep machine-specific defaults in `configs/local/default.yaml` when needed.
 
 ## Project Workflow
@@ -18,26 +18,36 @@ Repository-specific instructions for Codex-style agents working in this project.
 At a glance, the main project flow is:
 
 ```text
-uv sync -> unzip THINGS-EEG2 data -> preprocess EEG -> extract CLIP features -> train -> evaluate
+uv sync -> unzip datasets -> preprocess EEG -> extract CLIP features -> train -> evaluate
 ```
 
 Primary entrypoints and configs:
 
-| Area        | Entry               | Config                       | Purpose                         |
-| ----------- | ------------------- | ---------------------------- | ------------------------------- |
-| Environment | `uv sync`           | `pyproject.toml`, `uv.lock`  | Reproducible dependency setup   |
-| Preprocess  | `src/preprocess.py` | `configs/preprocess.yaml`    | Build THINGS-EEG2 `.pt` tensors |
-| Extract     | `src/extract.py`    | `configs/extract.yaml`       | Build THINGS-EEG2 CLIP features |
-| Train       | `src/train.py`      | `configs/train.yaml`         | Run Lightning training          |
-| Evaluate    | `src/eval.py`       | `configs/eval.yaml`          | Evaluate a checkpoint           |
-| Paths       | Hydra paths config  | `configs/paths/default.yaml` | Share data/output locations     |
-| Quality     | `pytest`, hooks     | `pyproject.toml`, hooks      | Test, lint, and format          |
+| Area        | Entry                  | Config                                      | Purpose                            |
+| ----------- | ---------------------- | ------------------------------------------- | ---------------------------------- |
+| Environment | `uv sync`              | `pyproject.toml`, `uv.lock`                 | Reproducible dependency management |
+| Preprocess  | `src/preprocess.py`    | `configs/preprocess.yaml`                   | Build THINGS-EEG2 `.pt` tensors    |
+| Extract     | `src/extract.py`       | `configs/extract.yaml`                      | Build THINGS-EEG2 CLIP features    |
+| Train       | `src/train.py`         | `configs/train.yaml`                        | Run Lightning training             |
+| Evaluate    | `src/eval.py`          | `configs/eval.yaml`                         | Evaluate a checkpoint              |
+| Paths       | Hydra composition      | `configs/paths/default.yaml`                | Share dataset and output locations |
+| Quality     | `pre-commit`, `pytest` | `.pre-commit-config.yaml`, `pyproject.toml` | Lint, format, and test             |
 
 Use `uv run --no-sync ...` after the environment has been synced.
+
+Environment setup:
+
+```powershell
+uv sync --extra cpu
+uv sync --extra cu126
+```
+
+Other configured CUDA extras are `cu128` and `cu129`.
 
 ## THINGS-EEG2 Data Flow
 
 - Data preparation order is `downloaded zip files -> unzip -> preprocess EEG -> extract CLIP features`.
+- Keep downloaded EEG zips and image zips separated before unzipping.
 - Shared data paths live in `configs/paths/default.yaml`; prefer updating that file for persistent local path mappings.
 - If using CLI `paths.*` overrides instead, pass the exact same relevant overrides through every later step. Hydra will otherwise fall back to default directories and scripts may fail to find generated data.
 - Unzip targets are controlled by `paths.thingseeg2_raw_dir` and `paths.thingseeg2_img_dir`.
@@ -50,8 +60,8 @@ Common commands:
 ```powershell
 uv run --no-sync python src/preprocess.py preprocess.subject_id=1
 uv run --no-sync python src/extract.py
-uv run --no-sync python src/train.py
-uv run --no-sync python src/eval.py ckpt_path="path/to/checkpoint.ckpt"
+uv run --no-sync python src/train.py data=thingseeg2 model=nice trainer=gpu
+uv run --no-sync python src/eval.py data=thingseeg2 model=nice ckpt_path="path/to/checkpoint.ckpt"
 ```
 
 Platform script wrappers:
@@ -65,6 +75,90 @@ Platform script wrappers:
 - Preprocess script wrappers take start and end subject IDs as the first two arguments; remaining arguments are Hydra overrides.
 - Extraction script wrappers do not loop over subject ranges; all arguments are passed through as Hydra overrides.
 
+## Training And Model Configs
+
+- The default training config uses `data=mnist` and `model=mnist`.
+- The default callback config is tuned for NICE/CLIP metrics and monitors `val/top1_acc`; MNIST runs usually need `callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc`.
+- THINGS-EEG2 CLIP training uses `configs/model/nice.yaml` or `configs/model/atms.yaml`.
+- `model=nice` uses `src.models.components.simple_nice.NICE`.
+- `model=atms` uses `src.models.components.simple_atms.ATMS`.
+- ATMS defaults to `model.eegnet.use_subject_embedding=false`, matching intra-subject runs. For cross-subject ATMS experiments, enable it explicitly with `model.eegnet.use_subject_embedding=true`.
+- `src.models.clipv1_module.ClipV1LitModule` owns CLIP-style loss, retrieval metrics, and optimizer/scheduler wiring for NICE and ATMS.
+- Dataset batches include `subject_id`; only subject-aware EEG nets should consume it.
+
+Useful training examples:
+
+```powershell
+uv run --no-sync python src/train.py callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
+uv run --no-sync python src/train.py data=thingseeg2 model=nice trainer=gpu
+uv run --no-sync python src/train.py data=thingseeg2 model=atms trainer=gpu
+uv run --no-sync python src/train.py data=thingseeg2 data.experiment_setting=cross-subject data.subjects=[sub-01] model=atms model.eegnet.use_subject_embedding=true trainer=gpu
+uv run --no-sync python src/train.py data=thingseeg2 data.k_fold=5 data.fold_idx=1 model=nice model.loss_type=cliploss trainer=gpu trainer.max_epochs=100 callbacks.early_stopping.patience=20
+```
+
+Useful evaluation examples:
+
+```powershell
+uv run --no-sync python src/eval.py ckpt_path="path/to/checkpoint.ckpt"
+uv run --no-sync python src/eval.py data=thingseeg2 model=nice ckpt_path="path/to/checkpoint.ckpt"
+uv run --no-sync python src/eval.py data=thingseeg2 model=atms ckpt_path="path/to/checkpoint.ckpt"
+```
+
+## Adding A New EEG Model
+
+Start by identifying the integration boundary. Some models are only a new EEG
+encoder component; others need a new Hydra config, Lightning module behavior,
+loss wiring, dataset fields, or evaluation logic. Keep the smallest boundary
+that satisfies the model design, and reuse existing project contracts when they
+fit.
+
+1. Read the current model path first.
+
+   - Check related configs under `configs/model/`.
+   - Check existing components under `src/models/components/`.
+   - Check the owning Lightning module, usually `src/models/clipv1_module.py` for EEG-to-CLIP models.
+   - Check tests that cover the closest existing model.
+
+2. Choose the model contract.
+
+   - For EEG-to-CLIP encoders used by `ClipV1LitModule`, return a dictionary with `eeg_clip` shaped `[batch, proj_dim]`.
+   - For models with different outputs, losses, or evaluation semantics, prefer a new Lightning module or a clearly named extension instead of forcing the model into the NICE/ATMS contract.
+   - Keep constructor parameters Hydra-friendly: primitives, lists, dictionaries, or optional values.
+   - Keep comments and docstrings in English.
+
+3. Add the component and config.
+
+   - Put reusable neural network pieces under `src/models/components/`.
+   - Add `configs/model/<name>.yaml` when the model should be selectable with `model=<name>`.
+   - For CLIP alignment models, `configs/model/nice.yaml` and `configs/model/atms.yaml` are good references for wrapper structure, optimizer/scheduler fields, retrieval settings, modality, loss, alpha, and compile.
+   - Use a different top-level `_target_` only when the model needs a different Lightning module.
+
+4. Handle batch metadata explicitly.
+
+   - Dataset batches include `subject_id` as a 1-based THINGS-EEG2 id.
+   - If a model needs metadata such as subject ids, expose an explicit opt-in or clearly named model parameter.
+   - Update batch routing only where the metadata is consumed, and keep existing models compatible.
+   - Do not make the datamodule depend on a specific model strategy.
+
+5. Add focused tests before behavior changes.
+
+   - Add or extend component tests for tensor shapes, required inputs, and error cases.
+   - Extend `tests/test_configs.py` for new Hydra model configs.
+   - Extend Lightning module tests when routing, loss behavior, metrics, or compatibility changes.
+   - Extend dataset/datamodule tests only when the model truly needs new data fields or split behavior.
+
+6. Verify the smallest relevant surface.
+
+```powershell
+uv run --no-sync pytest tests/test_<model>.py tests/test_clipv1_module.py tests/test_configs.py
+uv run --no-sync pre-commit run --files configs/model/<name>.yaml src/models/components/<model>.py tests/test_<model>.py tests/test_clipv1_module.py tests/test_configs.py
+```
+
+Adjust the file list to the actual files touched. For reviewer-friendly
+commits, keep tightly coupled component, config, routing, and test changes
+together when they form one inseparable integration; split unrelated refactors,
+dataset changes, or training workflow changes. Exclude unrelated dirty files.
+
 ## Verification
 
 - Use `uv run --no-sync ...` for project commands.
@@ -74,6 +168,12 @@ Platform script wrappers:
 
 ```powershell
 uv run --no-sync pre-commit run --files README.md
+```
+
+- For AGENTS-only changes, run:
+
+```powershell
+uv run --no-sync pre-commit run --files AGENTS.md
 ```
 
 - For broad changes, run:
@@ -106,17 +206,41 @@ uv run --no-sync pytest tests/test_thingseeg2_datamodule.py tests/test_thingseeg
 uv run --no-sync pytest tests/test_train.py
 ```
 
+- For model config changes, run:
+
+```powershell
+uv run --no-sync pytest tests/test_configs.py
+```
+
+- For NICE/ATMS model component changes, run the focused model tests when relevant:
+
+```powershell
+uv run --no-sync pytest tests/test_simple_nice.py tests/test_simple_atms.py tests/test_clipv1_module.py tests/test_configs.py
+```
+
 ## THINGS-EEG2 Conventions
 
 - `cross-subject` datamodule mode treats configured `subjects` as held-out test subjects.
 - In `cross-subject`, train/validation use the remaining THINGS-EEG2 subjects.
 - `intra-subject` mode uses configured `subjects` for train/validation/test.
+- For cross-subject ATMS, enable subject embeddings with `model.eegnet.use_subject_embedding=true`.
+- THINGS-EEG2 subject IDs are 1-based in dataset samples.
 - CLIP model name/id resolution should go through `src.utils.clip` instead of duplicating maps.
 - Dataset loading uses preprocessed EEG and extracted CLIP features; z-score and MVNN normalization belong in preprocessing, not dataset loading.
+- CLIP feature rows align with preprocessed EEG image order: `image_features[i]` aligns with `eeg[i, rep]`.
 - Saved EEG tensors keep the post-stimulus `[0, 1)` second window.
 - Training and test partitions are normalized independently per subject and session.
 - For MVNN modes, train and test data use whitening statistics estimated from the training partition.
 - For `mvnn_dim=null`, z-score mean and standard deviation are estimated from the training partition and applied to both partitions.
+
+## Project Layout Notes
+
+- THINGS-EEG2 data config: `configs/data/thingseeg2.yaml`.
+- NICE model config: `configs/model/nice.yaml`.
+- ATMS model config: `configs/model/atms.yaml`.
+- THINGS-EEG2 dataset and datamodule: `src/data/components/thingseeg2_dataset.py`, `src/data/thingseeg2_datamodule.py`.
+- EEG-to-CLIP Lightning module: `src/models/clipv1_module.py`.
+- NICE/ATMS components: `src/models/components/simple_nice.py`, `src/models/components/simple_atms.py`.
 
 ## Git Rules
 
