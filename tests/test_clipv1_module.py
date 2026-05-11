@@ -18,6 +18,19 @@ class DummyEEGNet(nn.Module):
         return {"eeg_clip": self.proj(x)}
 
 
+class DummySubjectAwareEEGNet(DummyEEGNet):
+    use_subject_embedding = True
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        subject_ids: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
+        if subject_ids is None:
+            raise ValueError("subject_ids are required")
+        return super().forward(x + subject_ids.float().unsqueeze(-1) * 0.0)
+
+
 def test_forward_returns_l2_normalized_eeg_features():
     module = ClipV1LitModule(
         eegnet=DummyEEGNet(),
@@ -30,6 +43,48 @@ def test_forward_returns_l2_normalized_eeg_features():
 
     assert features.shape == (3, 4)
     assert torch.allclose(features.norm(dim=-1), torch.ones(3), atol=1e-6)
+
+
+def test_model_step_passes_subject_ids_to_subject_aware_eegnet():
+    module = ClipV1LitModule(
+        eegnet=DummySubjectAwareEEGNet(),
+        optimizer=torch.optim.SGD,
+        scheduler=None,
+        compile=False,
+        modality="eeg2img",
+    )
+    batch = {
+        "eeg": torch.eye(4),
+        "subject_id": torch.tensor([1, 2, 3, 4]),
+        "image_features": torch.nn.functional.normalize(torch.eye(4), dim=-1),
+        "text_features": torch.nn.functional.normalize(torch.flip(torch.eye(4), dims=[0]), dim=-1),
+        "label": torch.arange(4),
+    }
+
+    _, eeg_features, *_ = module.model_step(batch)
+
+    assert eeg_features.shape == (4, 4)
+
+
+def test_model_step_ignores_subject_ids_for_plain_eegnet():
+    module = ClipV1LitModule(
+        eegnet=DummyEEGNet(),
+        optimizer=torch.optim.SGD,
+        scheduler=None,
+        compile=False,
+        modality="eeg2img",
+    )
+    batch = {
+        "eeg": torch.eye(4),
+        "subject_id": torch.tensor([1, 2, 3, 4]),
+        "image_features": torch.nn.functional.normalize(torch.eye(4), dim=-1),
+        "text_features": torch.nn.functional.normalize(torch.flip(torch.eye(4), dims=[0]), dim=-1),
+        "label": torch.arange(4),
+    }
+
+    _, eeg_features, *_ = module.model_step(batch)
+
+    assert eeg_features.shape == (4, 4)
 
 
 def test_model_step_computes_loss_from_batch_features():

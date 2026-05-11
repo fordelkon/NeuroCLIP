@@ -38,6 +38,23 @@ def test_train_config_supports_thingseeg2_nice() -> None:
     assert cfg.model.eegnet.proj_dim == 512
 
 
+def test_train_config_supports_thingseeg2_atms() -> None:
+    """Tests that THINGS-EEG2 can be paired with the ATMS CLIP module."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=["data=thingseeg2", "model=atms"],
+        )
+
+    assert cfg.data.average_reps is True
+    assert cfg.model._target_ == "src.models.clipv1_module.ClipV1LitModule"
+    assert cfg.model.eegnet._target_ == "src.models.components.simple_atms.ATMS"
+    assert cfg.model.eegnet.num_channels == 17
+    assert cfg.model.eegnet.sequence_length == 250
+    assert cfg.model.eegnet.proj_dim == 512
+    assert cfg.model.eegnet.use_subject_embedding is False
+
+
 def test_eval_config(cfg_eval: DictConfig) -> None:
     """Tests the evaluation configuration provided by the `cfg_eval` pytest fixture.
 

@@ -48,9 +48,16 @@ class ClipV1LitModule(LightningModule):
         self.val_top5_acc_best = MaxMetric()
         self.val_top10_acc_best = MaxMetric()
 
-    def forward(self, eeg_data: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        eeg_data: torch.Tensor,
+        subject_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Return L2-normalized EEG CLIP features."""
-        eeg_features = self.eegnet(eeg_data)["eeg_clip"]
+        if subject_ids is not None and getattr(self.eegnet, "use_subject_embedding", False):
+            eeg_features = self.eegnet(eeg_data, subject_ids=subject_ids)["eeg_clip"]
+        else:
+            eeg_features = self.eegnet(eeg_data)["eeg_clip"]
         return F.normalize(eeg_features, p=2, dim=-1)
 
     @staticmethod
@@ -73,7 +80,7 @@ class ClipV1LitModule(LightningModule):
         )
         labels = batch.get("label")
 
-        eeg_features = self.forward(eeg_data)
+        eeg_features = self.forward(eeg_data, subject_ids=batch.get("subject_id"))
         logit_scale = self.logit_scale.exp()
 
         if self.modality == "eeg2img":
