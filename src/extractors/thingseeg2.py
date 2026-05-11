@@ -24,7 +24,7 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from src.utils.clip import resolve_clip_model_id, sanitize_clip_model_name
+from src.utils.config_resolvers import resolve_clip_model_id, sanitize_clip_model_name
 
 StrPath = Union[str, os.PathLike[str]]
 ImageClipFeatureMode = Literal["pooled", "last_hidden_state_no_cls"]

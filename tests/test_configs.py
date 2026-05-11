@@ -55,6 +55,56 @@ def test_train_config_supports_thingseeg2_atms() -> None:
     assert cfg.model.eegnet.use_subject_embedding is False
 
 
+def test_thingseeg2_model_configs_resolve_clip_projection_dim() -> None:
+    """Tests that CLIP-aligned EEG models derive projection dim from the data CLIP model."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        nice_cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=["data=thingseeg2", "model=nice", "data.model_name=ViT-H-14"],
+        )
+        atms_cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=["data=thingseeg2", "model=atms", "data.model_name=ViT-H-14"],
+        )
+
+    assert nice_cfg.model.eegnet.proj_dim == 1024
+    assert atms_cfg.model.eegnet.proj_dim == 1024
+
+
+def test_thingseeg2_model_configs_resolve_selected_channel_count() -> None:
+    """Tests that EEG models derive channel count from selected THINGS-EEG2 channels."""
+    overrides = [
+        "data=thingseeg2",
+        "data.selected_channels=[O1,Oz,O2]",
+    ]
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        nice_cfg = hydra.compose(config_name="train.yaml", overrides=[*overrides, "model=nice"])
+        atms_cfg = hydra.compose(config_name="train.yaml", overrides=[*overrides, "model=atms"])
+
+    assert nice_cfg.model.eegnet.num_channels == 3
+    assert atms_cfg.model.eegnet.num_channels == 3
+
+
+def test_atms_subject_embedding_follows_experiment_setting() -> None:
+    """Tests that ATMS enables subject conditioning only for cross-subject runs."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        intra_cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=["data=thingseeg2", "model=atms"],
+        )
+        cross_cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=[
+                "data=thingseeg2",
+                "model=atms",
+                "data.experiment_setting=cross-subject",
+            ],
+        )
+
+    assert intra_cfg.model.eegnet.use_subject_embedding is False
+    assert cross_cfg.model.eegnet.use_subject_embedding is True
+
+
 def test_eval_config(cfg_eval: DictConfig) -> None:
     """Tests the evaluation configuration provided by the `cfg_eval` pytest fixture.
 

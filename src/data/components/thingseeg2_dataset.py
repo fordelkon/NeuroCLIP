@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from src.utils.clip import resolve_clip_model_id, sanitize_clip_model_name
+from src.utils.config_resolvers import resolve_clip_model_id, sanitize_clip_model_name
 
 StrPath = str | Path
 Partition = Literal["training", "test"]

@@ -15,16 +15,16 @@ scheduler:
 
 eegnet:
   _target_: src.models.components.simple_atms.ATMS
-  num_channels: 17
+  num_channels: ${len:${data.selected_channels}}
   sequence_length: 250
   num_subjects: 10
   nhead: 2
   num_layers: 1
   emb_size: 40
   emb_dim: 1440
-  proj_dim: 512
+  proj_dim: ${clip_dim:${data.model_name}}
   p: 0.5
-  use_subject_embedding: false
+  use_subject_embedding: ${is_cross_subject:${data.experiment_setting}}
   ts_filters: 40
   temporal_kernel: 25
   pool_kernel: 51

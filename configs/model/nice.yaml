@@ -16,9 +16,9 @@ scheduler:
 eegnet:
   _target_: src.models.components.simple_nice.NICE
   emb_size: 40
-  num_channels: 17
+  num_channels: ${len:${data.selected_channels}}
   emb_dim: 1440
-  proj_dim: 512
+  proj_dim: ${clip_dim:${data.model_name}}
   p: 0.5
   ts_filters: 40
   temporal_kernel: 25

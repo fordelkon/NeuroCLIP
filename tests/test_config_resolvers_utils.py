@@ -1,4 +1,4 @@
-from src.utils.clip import resolve_clip_model_id, sanitize_clip_model_name
+from src.utils.config_resolvers import resolve_clip_model_id, sanitize_clip_model_name
 
 
 def test_resolve_clip_model_id_maps_known_short_name() -> None:
