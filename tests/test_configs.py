@@ -38,6 +38,22 @@ def test_train_config_supports_thingseeg2_nice() -> None:
     assert cfg.model.eegnet.proj_dim == 512
 
 
+def test_train_config_supports_thingseeg2_flatnet() -> None:
+    """Tests that THINGS-EEG2 can be paired with the direct flatten-projection module."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=["data=thingseeg2", "model=flatnet"],
+        )
+
+    assert cfg.data.average_reps is True
+    assert cfg.model._target_ == "src.models.clipv1_module.ClipV1LitModule"
+    assert cfg.model.eegnet._target_ == "src.models.components.simple_nice.FlattenProjEEG"
+    assert cfg.model.eegnet.num_channels == 17
+    assert cfg.model.eegnet.time_points == 250
+    assert cfg.model.eegnet.proj_dim == 512
+
+
 def test_train_config_supports_thingseeg2_atms() -> None:
     """Tests that THINGS-EEG2 can be paired with the ATMS CLIP module."""
     with hydra.initialize(version_base="1.3", config_path="../configs"):
@@ -62,12 +78,17 @@ def test_thingseeg2_model_configs_resolve_clip_projection_dim() -> None:
             config_name="train.yaml",
             overrides=["data=thingseeg2", "model=nice", "data.model_name=ViT-H-14"],
         )
+        flatnet_cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=["data=thingseeg2", "model=flatnet", "data.model_name=ViT-H-14"],
+        )
         atms_cfg = hydra.compose(
             config_name="train.yaml",
             overrides=["data=thingseeg2", "model=atms", "data.model_name=ViT-H-14"],
         )
 
     assert nice_cfg.model.eegnet.proj_dim == 1024
+    assert flatnet_cfg.model.eegnet.proj_dim == 1024
     assert atms_cfg.model.eegnet.proj_dim == 1024
 
 
@@ -79,9 +100,14 @@ def test_thingseeg2_model_configs_resolve_selected_channel_count() -> None:
     ]
     with hydra.initialize(version_base="1.3", config_path="../configs"):
         nice_cfg = hydra.compose(config_name="train.yaml", overrides=[*overrides, "model=nice"])
+        flatnet_cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=[*overrides, "model=flatnet"],
+        )
         atms_cfg = hydra.compose(config_name="train.yaml", overrides=[*overrides, "model=atms"])
 
     assert nice_cfg.model.eegnet.num_channels == 3
+    assert flatnet_cfg.model.eegnet.num_channels == 3
     assert atms_cfg.model.eegnet.num_channels == 3
 
 
