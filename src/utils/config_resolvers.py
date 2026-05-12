@@ -29,6 +29,16 @@ CLIP_HIDDEN_SIZE_MAP = {
     "ViT-bigG-14": 1664,
 }
 
+MODEL_MONITOR_METRIC_MAP = {
+    "src.models.mnist_module.MNISTLitModule": "val/acc",
+    "src.models.clipv1_module.ClipV1LitModule": "val/top1_acc",
+}
+
+MODEL_OPTIMIZED_METRIC_MAP = {
+    "src.models.mnist_module.MNISTLitModule": "val/acc_best",
+    "src.models.clipv1_module.ClipV1LitModule": "val/top1_acc_best",
+}
+
 
 def sanitize_clip_model_name(value: str) -> str:
     """Return the filesystem-safe model name used by CLIP feature caches."""
@@ -65,6 +75,26 @@ def is_cross_subject(experiment_setting: str) -> bool:
     return experiment_setting == "cross-subject"
 
 
+def resolve_monitor_metric(model_target: str) -> str:
+    """Return the validation metric logged by a Lightning module."""
+    if model_target not in MODEL_MONITOR_METRIC_MAP:
+        raise ValueError(
+            f"Unknown model target: {model_target}. "
+            f"Available: {list(MODEL_MONITOR_METRIC_MAP)}"
+        )
+    return MODEL_MONITOR_METRIC_MAP[model_target]
+
+
+def resolve_optimized_metric(model_target: str) -> str:
+    """Return the best validation metric used for tuning a Lightning module."""
+    if model_target not in MODEL_OPTIMIZED_METRIC_MAP:
+        raise ValueError(
+            f"Unknown model target: {model_target}. "
+            f"Available: {list(MODEL_OPTIMIZED_METRIC_MAP)}"
+        )
+    return MODEL_OPTIMIZED_METRIC_MAP[model_target]
+
+
 def register_config_resolvers() -> None:
     """Register OmegaConf resolvers used by CLIP-aligned configs."""
     if not OmegaConf.has_resolver("clip_dim"):
@@ -75,3 +105,7 @@ def register_config_resolvers() -> None:
         OmegaConf.register_new_resolver("len", len)
     if not OmegaConf.has_resolver("is_cross_subject"):
         OmegaConf.register_new_resolver("is_cross_subject", is_cross_subject)
+    if not OmegaConf.has_resolver("monitor_metric"):
+        OmegaConf.register_new_resolver("monitor_metric", resolve_monitor_metric)
+    if not OmegaConf.has_resolver("optimized_metric"):
+        OmegaConf.register_new_resolver("optimized_metric", resolve_optimized_metric)

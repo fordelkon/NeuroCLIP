@@ -15,6 +15,7 @@ defaults:
 tags: ["mnist", "simple_dense_net"]
 
 seed: 12345
+optimized_metric: ${optimized_metric:${model._target_}}
 
 trainer:
   min_epochs: 10

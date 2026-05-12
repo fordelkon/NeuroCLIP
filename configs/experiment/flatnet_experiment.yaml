@@ -13,7 +13,7 @@ defaults:
 tags: ["thingseeg2", "flatnet", "eeg2clip"]
 
 seed: 12345
-optimized_metric: "val/top1_acc_best"
+optimized_metric: ${optimized_metric:${model._target_}}
 
 logger:
   wandb:

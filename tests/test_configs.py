@@ -2,7 +2,7 @@ import hydra
 import pytest
 from hydra.core.hydra_config import HydraConfig
 from lightning.pytorch.callbacks.progress.rich_progress import RichProgressBar
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from src.utils.instantiators import instantiate_callbacks
 
@@ -37,6 +37,46 @@ def test_train_config_supports_thingseeg2_nice() -> None:
     assert cfg.model.eegnet._target_ == "src.models.components.simple_nice.NICE"
     assert cfg.model.eegnet.num_channels == 17
     assert cfg.model.eegnet.proj_dim == 512
+
+
+def test_default_mnist_config_uses_classification_monitor_metrics() -> None:
+    """Tests that MNIST runs monitor the metrics logged by MNISTLitModule."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        cfg = hydra.compose(config_name="train.yaml")
+
+    assert cfg.model._target_ == "src.models.mnist_module.MNISTLitModule"
+    assert cfg.callbacks.model_checkpoint.monitor == "val/acc"
+    assert cfg.callbacks.early_stopping.monitor == "val/acc"
+
+
+def test_example_experiment_sets_mnist_optimized_metric() -> None:
+    """Tests that the MNIST experiment declares its sweep optimization metric."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        cfg = hydra.compose(
+            config_name="train.yaml",
+            return_hydra_config=True,
+            overrides=["experiment=example"],
+        )
+
+    raw_cfg = OmegaConf.to_container(cfg, resolve=False)
+
+    assert cfg.model._target_ == "src.models.mnist_module.MNISTLitModule"
+    assert raw_cfg["optimized_metric"] == "${optimized_metric:${model._target_}}"
+    assert cfg.optimized_metric == "val/acc_best"
+
+
+@pytest.mark.parametrize("model_name", ["nice", "atms", "flatnet"])
+def test_clip_model_configs_use_retrieval_monitor_metrics(model_name: str) -> None:
+    """Tests that CLIP-aligned models monitor the metrics logged by ClipV1LitModule."""
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=["data=thingseeg2", f"model={model_name}"],
+        )
+
+    assert cfg.model._target_ == "src.models.clipv1_module.ClipV1LitModule"
+    assert cfg.callbacks.model_checkpoint.monitor == "val/top1_acc"
+    assert cfg.callbacks.early_stopping.monitor == "val/top1_acc"
 
 
 @pytest.mark.parametrize(
