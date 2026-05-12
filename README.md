@@ -506,13 +506,13 @@ through as Hydra overrides.
 Main entrypoint:
 
 ```bash
-uv run --no-sync python src/train.py callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
+uv run --no-sync python src/train.py
 ```
 
 The default training config uses `data=mnist` and `model=mnist`, whose validation
-metric is `val/acc`. The default callback config is tuned for NICE/CLIP training
-and monitors `val/top1_acc`, so MNIST runs need the callback monitor overrides
-shown above.
+metric is `val/acc`. Callback monitors and experiment optimization metrics are
+resolved from the selected Lightning module, so MNIST runs use `val/acc` while
+NICE/ATMS/FlatNet CLIP-aligned runs use `val/top1_acc`.
 
 Train NICE on THINGS-EEG2 with a 5-fold validation split:
 
@@ -523,14 +523,14 @@ uv run --no-sync python src/train.py data=thingseeg2 data.k_fold=5 data.fold_idx
 Common examples:
 
 ```bash
-uv run --no-sync python src/train.py trainer=cpu callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
-uv run --no-sync python src/train.py trainer=gpu callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
-uv run --no-sync python src/train.py trainer=ddp trainer.devices=4 callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
-uv run --no-sync python src/train.py logger=tensorboard callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
-uv run --no-sync python src/train.py experiment=example callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
+uv run --no-sync python src/train.py trainer=cpu
+uv run --no-sync python src/train.py trainer=gpu
+uv run --no-sync python src/train.py trainer=ddp trainer.devices=4
+uv run --no-sync python src/train.py logger=tensorboard
+uv run --no-sync python src/train.py experiment=example
 uv run --no-sync python src/train.py data=thingseeg2 model=nice
-uv run --no-sync python src/train.py trainer.max_epochs=20 callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
-uv run --no-sync python src/train.py ckpt_path="/path/to/checkpoint.ckpt" callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc
+uv run --no-sync python src/train.py trainer.max_epochs=20
+uv run --no-sync python src/train.py ckpt_path="/path/to/checkpoint.ckpt"
 ```
 
 The default training config is `configs/train.yaml`. Hydra overrides can select
