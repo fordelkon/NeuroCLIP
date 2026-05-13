@@ -249,6 +249,25 @@ def test_thingseeg2_model_configs_resolve_selected_channel_count() -> None:
     assert atms_cfg.model.eegnet.num_channels == 3
 
 
+def test_thingseeg2_model_configs_treat_null_selected_channels_as_all_channels() -> None:
+    """Tests that CLI null for selected channels uses all THINGS-EEG2 channels."""
+    overrides = [
+        "data=thingseeg2",
+        "data.selected_channels=null",
+    ]
+    with hydra.initialize(version_base="1.3", config_path="../configs"):
+        nice_cfg = hydra.compose(config_name="train.yaml", overrides=[*overrides, "model=nice"])
+        flatnet_cfg = hydra.compose(
+            config_name="train.yaml",
+            overrides=[*overrides, "model=flatnet"],
+        )
+        atms_cfg = hydra.compose(config_name="train.yaml", overrides=[*overrides, "model=atms"])
+
+    assert nice_cfg.model.eegnet.num_channels == 63
+    assert flatnet_cfg.model.eegnet.num_channels == 63
+    assert atms_cfg.model.eegnet.num_channels == 63
+
+
 def test_atms_subject_embedding_follows_experiment_setting() -> None:
     """Tests that ATMS enables subject conditioning only for cross-subject runs."""
     with hydra.initialize(version_base="1.3", config_path="../configs"):

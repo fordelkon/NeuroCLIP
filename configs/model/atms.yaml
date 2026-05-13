@@ -15,7 +15,7 @@ scheduler:
 
 eegnet:
   _target_: src.models.components.simple_atms.ATMS
-  num_channels: ${len:${data.selected_channels}}
+  num_channels: ${channel_count:${data.selected_channels},63}
   sequence_length: 250
   num_subjects: 10
   nhead: 2

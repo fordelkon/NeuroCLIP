@@ -15,7 +15,7 @@ scheduler:
 
 eegnet:
   _target_: src.models.components.simple_nice.FlattenProjEEG
-  num_channels: ${len:${data.selected_channels}}
+  num_channels: ${channel_count:${data.selected_channels},63}
   time_points: 250
   proj_dim: ${clip_dim:${data.model_name}}
   p: 0.5

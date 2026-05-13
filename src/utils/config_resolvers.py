@@ -95,6 +95,13 @@ def resolve_optimized_metric(model_target: str) -> str:
     return MODEL_OPTIMIZED_METRIC_MAP[model_target]
 
 
+def resolve_channel_count(selected_channels: object, all_channels: int) -> int:
+    """Return selected EEG channel count, treating CLI null as all channels."""
+    if selected_channels is None:
+        return all_channels
+    return len(selected_channels)  # type: ignore[arg-type]
+
+
 def register_config_resolvers() -> None:
     """Register OmegaConf resolvers used by CLIP-aligned configs."""
     if not OmegaConf.has_resolver("clip_dim"):
@@ -103,6 +110,8 @@ def register_config_resolvers() -> None:
         OmegaConf.register_new_resolver("clip_hidden_size", resolve_clip_hidden_size)
     if not OmegaConf.has_resolver("len"):
         OmegaConf.register_new_resolver("len", len)
+    if not OmegaConf.has_resolver("channel_count"):
+        OmegaConf.register_new_resolver("channel_count", resolve_channel_count)
     if not OmegaConf.has_resolver("is_cross_subject"):
         OmegaConf.register_new_resolver("is_cross_subject", is_cross_subject)
     if not OmegaConf.has_resolver("monitor_metric"):
