@@ -575,6 +575,7 @@ Common training overrides:
 | `paths.thingseeg2_preprocessed_dir`     | Point training at preprocessed EEG tensors.                                                | `paths.thingseeg2_preprocessed_dir=/data/thingseeg2-preprocessed`                |
 | `paths.thingseeg2_clip_features_dir`    | Point training at extracted CLIP features.                                                 | `paths.thingseeg2_clip_features_dir=/data/thingseeg2-clip-features`              |
 | `ckpt_path`                             | Resume from a checkpoint.                                                                  | `ckpt_path=/path/to/last.ckpt`                                                   |
+| `hydra.run.dir`                         | Fix the Hydra output and log directory for a training run.                                 | `hydra.run.dir=logs/train/run/atms_kfold0_all_channels`                          |
 | `seed`                                  | Set RNG seed.                                                                              | `seed=42`                                                                        |
 | `train`                                 | Skip fitting when only test/eval behavior is needed.                                       | `train=false`                                                                    |
 | `test`                                  | Enable or disable the final test pass after training.                                      | `test=true`, `test=false`                                                        |
