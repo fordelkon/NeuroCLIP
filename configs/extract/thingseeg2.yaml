@@ -32,3 +32,14 @@ feature_mode: pooled
 # toggle image and text feature extraction independently
 extract_image: true
 extract_text: true
+
+# blur levels for multi-view image feature extraction
+# null or single sharp view maintains backward compatibility
+# set to a dict with view_name: sigma pairs to enable multi-view extraction
+# sigma=0.0 means no blur (sharp image), higher values mean more blur
+# blur_levels: null
+# Example multi-view configuration:
+blur_levels:
+  mid_blur: 10.0
+  no_blur: 0.0
+  heavy_blur: 20.0
