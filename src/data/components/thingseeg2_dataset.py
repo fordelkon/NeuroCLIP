@@ -79,6 +79,7 @@ class ThingsEEG2Dataset(Dataset):
 
         self._load_eeg()
         self._load_features()
+        self._init_match_labels()
 
     @staticmethod
     def _resolve_subjects(subjects: Subject | list[Subject] | tuple[Subject, ...]) -> list[str]:
@@ -194,15 +195,57 @@ class ThingsEEG2Dataset(Dataset):
         data = _load_pt(self.clip_features_dir / f"{self.partition}.pt")
         self.image_paths = list(data.get("image_path", []))
         self.feature_texts = list(data.get("text", []))
-        self.image_features = data.get("image_features")
         self.text_features = data.get("text_features")
 
-        if self.image_features is not None:
-            self.image_features = self.image_features.float()
-            self._validate_feature_length(self.image_features, "image_features")
+        # Detect multi-view features (keys like "image_features_no_blur", "image_features_mid_blur")
+        view_keys = [k for k in data.keys() if k.startswith("image_features_")]
+        if view_keys:
+            # Multi-view mode: load all views into a dict
+            self.image_features = {
+                k.replace("image_features_", ""): data[k].float() for k in view_keys
+            }
+            # Validate all views have correct length
+            for view_name, features in self.image_features.items():
+                self._validate_feature_length(features, f"image_features_{view_name}")
+        else:
+            # Single-view mode: backward compatible
+            self.image_features = data.get("image_features")
+            if self.image_features is not None:
+                self.image_features = self.image_features.float()
+                self._validate_feature_length(self.image_features, "image_features")
+
         if self.text_features is not None:
             self.text_features = self.text_features.float()
             self._validate_feature_length(self.text_features, "text_features")
+
+    def _init_match_labels(self) -> None:
+        """Initialize match_label for dynamic view selection."""
+        if isinstance(self.image_features, dict):
+            # Multi-view mode: initialize match_label
+            self.view_names = list(self.image_features.keys())
+            # Default to no_blur view
+            default_idx = len(self.view_names) // 2
+            self.match_label = np.full(len(self), default_idx, dtype=np.int32)
+        else:
+            # Single-view mode: no match_label needed
+            self.view_names = None
+            self.match_label = None
+
+    def update_match_labels(self, indices: np.ndarray, labels: np.ndarray) -> None:
+        """Update match_label for dynamic view selection based on model confidence.
+
+        :param indices: Sample indices to update.
+        :param labels: New view indices (0=first view, 1=second view, etc.).
+        """
+        if self.match_label is None:
+            raise ValueError("match_label is not initialized. Multi-view features required.")
+        self.match_label[indices] = labels
+
+    def reset_match_labels(self) -> None:
+        """Reset all match_labels to default (middle view)."""
+        if self.match_label is not None:
+            default_idx = len(self.view_names) // 2
+            self.match_label[:] = default_idx
 
     def _validate_feature_length(self, features: torch.Tensor, key: str) -> None:
         """Validate feature rows align one-to-one with image indices."""
@@ -228,7 +271,11 @@ class ThingsEEG2Dataset(Dataset):
             "label_shape": tuple(self.labels.shape),
             "selected_channels": self.ch_names,
             "image_features_shape": (
-                tuple(self.image_features.shape) if self.image_features is not None else None
+                {view: tuple(feat.shape) for view, feat in self.image_features.items()}
+                if isinstance(self.image_features, dict)
+                else (
+                    tuple(self.image_features.shape) if self.image_features is not None else None
+                )
             ),
             "text_features_shape": (
                 tuple(self.text_features.shape) if self.text_features is not None else None
@@ -280,7 +327,16 @@ class ThingsEEG2Dataset(Dataset):
         }
 
         if self.image_features is not None:
-            sample["image_features"] = self.image_features[image_idx]
+            if isinstance(self.image_features, dict):
+                # Multi-view mode: select view based on match_label
+                selected_view_idx = self.match_label[index]
+                selected_view_name = self.view_names[selected_view_idx]
+                sample["image_features"] = self.image_features[selected_view_name][image_idx]
+                sample["selected_view"] = selected_view_name
+                sample["view_index"] = selected_view_idx
+            else:
+                # Single-view mode: backward compatible
+                sample["image_features"] = self.image_features[image_idx]
         if self.text_features is not None:
             sample["text_features"] = self.text_features[image_idx]
 
