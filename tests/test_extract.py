@@ -41,6 +41,27 @@ class FakeClipBackend:
         return None
 
 
+class MultiViewFakeClipBackend:
+    """Deterministic backend that returns multi-view features."""
+
+    def __init__(self, blur_levels: dict[str, float]) -> None:
+        self.blur_levels = blur_levels
+
+    def encode_images(self, image_paths: list[str]) -> dict[str, torch.Tensor]:
+        features_dict = {}
+        for view_name, sigma in self.blur_levels.items():
+            rows = [[float(i), float(len(path)), sigma] for i, path in enumerate(image_paths)]
+            features_dict[view_name] = torch.tensor(rows, dtype=torch.float32)
+        return features_dict
+
+    def encode_texts(self, texts: list[str]) -> torch.Tensor:
+        rows = [[float(i), float(len(text))] for i, text in enumerate(texts)]
+        return torch.tensor(rows, dtype=torch.float32)
+
+    def close(self) -> None:
+        return None
+
+
 class DeviceAwareFakeClipBackend:
     """Backend that records which logical device encoded each row."""
 
@@ -272,3 +293,39 @@ def test_collect_partition_metadata_rejects_empty_partition(tmp_path: Path) -> N
         assert "at least one image" in str(error)
     else:
         raise AssertionError("empty partitions should be rejected")
+
+
+def test_clip_extractor_saves_multiview_features(tmp_path: Path) -> None:
+    """Multi-view extraction should save features with view-specific keys."""
+    prep_dir = tmp_path / "prep"
+    subject_dir = prep_dir / "sub-01"
+    subject_dir.mkdir(parents=True)
+    _write_preprocessed_partition(subject_dir / "training.pt")
+
+    blur_levels = {"sharp": 0.0, "mid_blur": 5.0, "heavy_blur": 10.0}
+    extractor = Thingseeg2ClipExtractor(
+        prep_eeg_data_dir=prep_dir,
+        save_dir=tmp_path / "features",
+        reference_subject_id=1,
+        model_name="fake-clip",
+        model_id="fake/clip",
+        partitions=["training"],
+        batch_size=2,
+        device="cpu",
+        extract_image=True,
+        extract_text=True,
+        blur_levels=blur_levels,
+        backend_factory=lambda _: MultiViewFakeClipBackend(blur_levels),
+    )
+
+    outputs = extractor.run()
+    saved = torch.load(outputs["training"], weights_only=False)
+
+    assert "image_features_sharp" in saved
+    assert "image_features_mid_blur" in saved
+    assert "image_features_heavy_blur" in saved
+    assert "image_features" not in saved
+    assert saved["image_features_sharp"].shape == (3, 3)
+    assert saved["image_features_mid_blur"].shape == (3, 3)
+    assert saved["image_features_heavy_blur"].shape == (3, 3)
+    assert saved["metadata"]["blur_levels"] == blur_levels

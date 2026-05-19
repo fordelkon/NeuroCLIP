@@ -29,6 +29,10 @@ class ClipV1LitModule(LightningModule):
         modality: Literal["eeg2img", "eeg2txt", "eeg2img2txt"] = "eeg2img",
         loss_type: Literal["cliploss", "sigliploss"] = "sigliploss",
         alpha: float = 0.99,
+        enable_ubp: bool = False,
+        ubp_update_freq: int = 1,
+        ubp_gamma: float = 0.9,
+        ubp_ci_alpha: float = 0.05,
     ) -> None:
         """Initialize the CLIP alignment module."""
         super().__init__()
@@ -38,6 +42,10 @@ class ClipV1LitModule(LightningModule):
         self.retrieval_k_list = retrieval_k_list or [2, 4, 10, 200]
         self.modality = modality
         self.alpha = alpha
+        self.enable_ubp = enable_ubp
+        self.ubp_update_freq = ubp_update_freq
+        self.ubp_gamma = ubp_gamma
+        self.ubp_ci_alpha = ubp_ci_alpha
         self.criterion = ClipLoss() if loss_type == "cliploss" else SigLipLoss()
         self.logit_scale = nn.Parameter(torch.ones([]) * torch.log(torch.tensor(1 / 0.07)))
 
@@ -112,10 +120,50 @@ class ClipV1LitModule(LightningModule):
         self.val_top5_acc_best.reset()
         self.val_top10_acc_best.reset()
 
+        # Auto-detect multi-view features and enable UBP
+        train_dataloader = self.trainer.train_dataloader
+        if hasattr(train_dataloader, "dataset"):
+            # Unwrap dataset to access the actual ThingsEEG2Dataset instance
+            dataset = train_dataloader.dataset
+            while hasattr(dataset, "dataset"):
+                dataset = dataset.dataset
+
+            has_multiview = hasattr(dataset, "view_names") and dataset.view_names is not None
+            if has_multiview and len(dataset.view_names) > 1:
+                if not self.enable_ubp:
+                    log.info("Multi-view features detected, auto-enabling UBP")
+                self.enable_ubp = True
+            elif self.enable_ubp and not has_multiview:
+                log.warning("UBP enabled but no multi-view features found, disabling UBP")
+                self.enable_ubp = False
+
+        log.info(f"UBP status: {'enabled' if self.enable_ubp else 'disabled'}")
+
+        # Initialize UBP similarity tracking array
+        if self.enable_ubp:
+            n_samples = len(dataset)
+            self.ubp_sim = torch.zeros(n_samples, dtype=torch.float32)
+            log.info(f"Initialized UBP tracking for {n_samples} samples")
+
+    def on_train_epoch_start(self) -> None:
+        """Initialize UBP collection lists at epoch start."""
+        if self.enable_ubp:
+            self.ubp_indices = []
+            self.ubp_confidences = []
+
     def training_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
         """Run one optimization step."""
-        loss, eeg_features, *_ = self.model_step(batch)
+        loss, eeg_features, image_features, *_ = self.model_step(batch)
         self.train_loss(loss)
+
+        # Track confidence for UBP
+        if self.enable_ubp:
+            with torch.no_grad():
+                # Cosine similarity as confidence measure
+                confidences = (eeg_features * image_features).sum(dim=-1)
+                self.ubp_indices.append(batch["idx"])
+                self.ubp_confidences.append(confidences)
+
         self.log(
             "train/loss",
             self.train_loss,
@@ -126,6 +174,105 @@ class ClipV1LitModule(LightningModule):
             batch_size=eeg_features.shape[0],
         )
         return loss
+
+    def on_train_epoch_end(self) -> None:
+        """Update UBP match_labels based on confidence scores with EMA and CI thresholding."""
+        if not self.enable_ubp:
+            return
+
+        # Only update every ubp_update_freq epochs
+        if (self.current_epoch + 1) % self.ubp_update_freq != 0:
+            return
+
+        if not self.ubp_indices:
+            return
+
+        import numpy as np
+        from scipy.stats import norm
+
+        local_indices = torch.cat(self.ubp_indices, dim=0)
+        local_confidences = torch.cat(self.ubp_confidences, dim=0)
+
+        # Multi-GPU: gather confidences for global threshold computation
+        world_size = self.trainer.world_size
+        if world_size > 1:
+            local_size = torch.tensor([local_confidences.size(0)], device=self.device)
+            all_sizes = self.all_gather(local_size).view(-1)
+            max_size = all_sizes.max().item()
+
+            padded_conf = torch.zeros(max_size, dtype=local_confidences.dtype, device=self.device)
+            padded_conf[: local_confidences.size(0)] = local_confidences.to(self.device)
+            gathered_conf = self.all_gather(padded_conf).view(world_size, -1)
+
+            all_conf_list = []
+            for rank in range(world_size):
+                valid_size = all_sizes[rank].item()
+                all_conf_list.append(gathered_conf[rank, :valid_size])
+            global_confidences = torch.cat(all_conf_list, dim=0).cpu().numpy()
+        else:
+            global_confidences = local_confidences.cpu().numpy()
+
+        # Access underlying dataset
+        dataset = self.trainer.train_dataloader.dataset
+        while hasattr(dataset, "dataset"):
+            dataset = dataset.dataset
+
+        # Compute global thresholds using confidence intervals
+        mean_conf = np.mean(global_confidences)
+        std_conf = np.std(global_confidences, ddof=1) if len(global_confidences) > 1 else 1e-6
+        z_alpha_2 = norm.ppf(1 - self.ubp_ci_alpha / 2)
+        lower_bound = mean_conf - z_alpha_2 * std_conf
+        upper_bound = mean_conf + z_alpha_2 * std_conf
+
+        # Process local samples with EMA smoothing
+        local_indices_np = local_indices.cpu().numpy()
+        local_conf_np = local_confidences.cpu().numpy()
+
+        local_sim = (
+            self.ubp_gamma * local_conf_np
+            + (1 - self.ubp_gamma) * self.ubp_sim[local_indices_np].numpy()
+        )
+        self.ubp_sim[local_indices_np] = torch.from_numpy(local_sim)
+
+        # Assign blur levels with index-based assignment
+        new_labels = np.ones(len(local_indices_np), dtype=np.int32)
+        new_labels[local_conf_np > upper_bound] = 0
+        new_labels[local_conf_np < lower_bound] = 2
+
+        dataset.update_match_labels(local_indices_np, new_labels)
+
+        # Log statistics
+        if self.trainer.is_global_zero:
+            if world_size > 1:
+                local_counts = torch.tensor(
+                    [(new_labels == 0).sum(), (new_labels == 1).sum(), (new_labels == 2).sum()],
+                    device=self.device,
+                    dtype=torch.long,
+                )
+                global_counts = self.all_gather(local_counts).sum(dim=0).cpu().numpy()
+                n_mid_blur, n_no_blur, n_heavy_blur = global_counts
+            else:
+                n_mid_blur, n_no_blur, n_heavy_blur = (
+                    (new_labels == 0).sum(),
+                    (new_labels == 1).sum(),
+                    (new_labels == 2).sum(),
+                )
+
+            log.info(
+                f"UBP epoch {self.current_epoch + 1}: "
+                f"mid_blur={n_mid_blur}, no_blur={n_no_blur}, heavy_blur={n_heavy_blur}, "
+                f"bounds=[{format(lower_bound, '.4f')}, {format(upper_bound, '.4f')}]"
+            )
+        elif world_size > 1:
+            local_counts = torch.tensor(
+                [(new_labels == 0).sum(), (new_labels == 1).sum(), (new_labels == 2).sum()],
+                device=self.device,
+                dtype=torch.long,
+            )
+            self.all_gather(local_counts)
+
+        self.ubp_indices = []
+        self.ubp_confidences = []
 
     def on_validation_epoch_start(self) -> None:
         """Prepare validation feature buffers."""
@@ -150,6 +297,25 @@ class ClipV1LitModule(LightningModule):
         self._log_val_recall(metrics)
         self.all_eeg_features_val = []
         self.all_img_features_val = []
+
+    def on_test_start(self) -> None:
+        """Set all samples to use no_blur view for testing."""
+        if self.enable_ubp:
+            # Access dataset through datamodule
+            if hasattr(self.trainer, "datamodule") and self.trainer.datamodule is not None:
+                datamodule = self.trainer.datamodule
+                if hasattr(datamodule, "data_test"):
+                    dataset = datamodule.data_test
+                    if hasattr(dataset, "match_label") and dataset.match_label is not None:
+                        # Find no_blur view index
+                        no_blur_idx = 0
+                        if hasattr(dataset, "view_names") and dataset.view_names:
+                            for idx, view_name in enumerate(dataset.view_names):
+                                if "no_blur" in view_name.lower():
+                                    no_blur_idx = idx
+                                    break
+                        dataset.match_label[:] = no_blur_idx
+                        log.info(f"Test: using no_blur view (index {no_blur_idx})")
 
     def on_test_epoch_start(self) -> None:
         """Prepare test feature buffers."""
