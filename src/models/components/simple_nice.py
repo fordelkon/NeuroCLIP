@@ -34,6 +34,7 @@ class EEGEncoder(nn.Sequential):
         self,
         emb_size: int = 40,
         num_channels: int = 17,
+        sequence_length: int | None = None,
         p: float = 0.5,
         ts_filters: int = 40,
         temporal_kernel: int = 25,
@@ -41,6 +42,8 @@ class EEGEncoder(nn.Sequential):
         pool_stride: int = 5,
     ):
         """Build the temporal-spatial EEG encoder."""
+        self.num_channels = num_channels
+        self.sequence_length = sequence_length
         super().__init__(
             TSEmbedding(
                 emb_size=emb_size,
@@ -53,6 +56,25 @@ class EEGEncoder(nn.Sequential):
             ),
             FlattenHead(),
         )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Return flattened EEG features after validating input shape."""
+        self._validate_eeg_shape(x)
+        return super().forward(x)
+
+    def _validate_eeg_shape(self, x: torch.Tensor) -> None:
+        """Validate the EEG tensor shape expected by the encoder."""
+        if x.ndim != 3:
+            raise ValueError(f"Expected EEG shape [batch, channels, time], got {tuple(x.shape)}.")
+        if x.shape[1] != self.num_channels:
+            raise ValueError(
+                f"Expected EEG shape [batch, {self.num_channels}, time], got {tuple(x.shape)}."
+            )
+        if self.sequence_length is not None and x.shape[2] != self.sequence_length:
+            raise ValueError(
+                "Expected EEG shape "
+                f"[batch, {self.num_channels}, {self.sequence_length}], got {tuple(x.shape)}."
+            )
 
 
 class ProjectionHead(nn.Sequential):
@@ -97,6 +119,8 @@ class FlattenProjEEG(nn.Module):
     ):
         """Initialize the direct EEG projection module."""
         super().__init__()
+        self.num_channels = num_channels
+        self.time_points = time_points
         self.flatten_dim = num_channels * time_points
         self.flatten_eeg_proj = EEGProjectionHead(
             emb_dim=self.flatten_dim,
@@ -106,8 +130,19 @@ class FlattenProjEEG(nn.Module):
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         """Return a CLIP-aligned EEG embedding."""
+        self._validate_eeg_shape(x)
         x = x.contiguous().view(x.shape[0], self.flatten_dim)
         return {"eeg_clip": self.flatten_eeg_proj(x)}
+
+    def _validate_eeg_shape(self, x: torch.Tensor) -> None:
+        """Validate the EEG tensor shape expected by the flatten projector."""
+        if x.ndim != 3:
+            raise ValueError(f"Expected EEG shape [batch, channels, time], got {tuple(x.shape)}.")
+        if x.shape[1] != self.num_channels or x.shape[2] != self.time_points:
+            raise ValueError(
+                "Expected EEG shape "
+                f"[batch, {self.num_channels}, {self.time_points}], got {tuple(x.shape)}."
+            )
 
 
 class NICE(nn.Module):
@@ -117,6 +152,7 @@ class NICE(nn.Module):
         self,
         emb_size: int = 40,
         num_channels: int = 17,
+        sequence_length: int | None = None,
         emb_dim: int = 1440,
         proj_dim: int = 512,
         p: float = 0.5,
@@ -127,9 +163,12 @@ class NICE(nn.Module):
     ):
         """Initialize the single-head NICE EEG projection model."""
         super().__init__()
+        self.num_channels = num_channels
+        self.sequence_length = sequence_length
         self.enc_eeg = EEGEncoder(
             emb_size=emb_size,
             num_channels=num_channels,
+            sequence_length=sequence_length,
             p=p,
             ts_filters=ts_filters,
             temporal_kernel=temporal_kernel,
@@ -140,5 +179,20 @@ class NICE(nn.Module):
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         """Return ``eeg_clip`` with shape ``[batch, proj_dim]``."""
+        self._validate_eeg_shape(x)
         eeg_emb = self.enc_eeg(x)
         return {"eeg_clip": self.proj_eeg(eeg_emb)}
+
+    def _validate_eeg_shape(self, x: torch.Tensor) -> None:
+        """Validate the EEG tensor shape expected by NICE."""
+        if x.ndim != 3:
+            raise ValueError(f"Expected EEG shape [batch, channels, time], got {tuple(x.shape)}.")
+        if x.shape[1] != self.num_channels:
+            raise ValueError(
+                f"Expected EEG shape [batch, {self.num_channels}, time], got {tuple(x.shape)}."
+            )
+        if self.sequence_length is not None and x.shape[2] != self.sequence_length:
+            raise ValueError(
+                "Expected EEG shape "
+                f"[batch, {self.num_channels}, {self.sequence_length}], got {tuple(x.shape)}."
+            )
