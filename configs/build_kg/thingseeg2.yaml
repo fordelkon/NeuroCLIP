@@ -1,0 +1,34 @@
+_target_: src.kg_builders.thingseeg2.Thingseeg2KGBuilder
+
+# Number of neighbors per concept
+k: 10
+
+# Reuse extractor configuration for consistency
+clip_features_base_dir: ${extract.save_dir}
+model_name: ${extract.model_name}
+model_id: ${extract.model_id}
+feature_mode: ${extract.feature_mode}
+model_cache_dir: ${extract.model_cache_dir}
+device: ${extract.device}
+
+# Output directory
+save_dir: ${paths.data_dir}/knowledge_graphs
+
+# Partition to build graph for
+partition: training
+
+# Seed for reproducibility
+seed: 42
+
+# Open vocabulary mode (set to true to enable extended vocabulary)
+use_open_vocab: true
+
+# Vocabulary expansion (only used when use_open_vocab=true)
+max_extended_concepts: 3000 # Number of concepts to add from external KBs
+
+# Neighbor selection quotas (only used when use_open_vocab=true)
+quota_dataset: 5 # Max neighbors from dataset (visual similarity)
+quota_extended: 5 # Max neighbors from extended vocab (semantic associations)
+
+# Output format: 'pt' (default) or 'jsonl' (human-readable) or 'all'
+output_format: all
