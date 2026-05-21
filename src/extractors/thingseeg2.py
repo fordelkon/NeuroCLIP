@@ -25,7 +25,12 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from src.utils.config_resolvers import resolve_clip_model_id, sanitize_clip_model_name
+from src.utils.config_resolvers import (
+    create_clip_backend,
+    resolve_clip_model_id,
+    resolve_devices,
+    sanitize_clip_model_name,
+)
 
 StrPath = Union[str, os.PathLike[str]]
 ImageClipFeatureMode = Literal["pooled", "last_hidden_state_no_cls"]
@@ -231,24 +236,6 @@ def resolve_model_id(model_name: str, model_id: str | None = None) -> tuple[str,
     return resolve_clip_model_id(model_name, model_id)
 
 
-def resolve_device(device: str) -> str:
-    """Resolve an auto/cpu/cuda device setting into a torch device string."""
-    return ",".join(resolve_devices(device))
-
-
-def resolve_devices(device: str) -> tuple[str, ...]:
-    """Resolve an auto/cpu/cuda device setting into one or more torch devices."""
-    if device == "auto":
-        if not torch.cuda.is_available():
-            return ("cpu",)
-        return _all_cuda_devices()
-    if device == "cuda":
-        if not torch.cuda.is_available():
-            raise ValueError("CUDA was requested, but torch.cuda.is_available() is false.")
-        return _all_cuda_devices()
-    return (device,)
-
-
 def normalize_feature_mode(feature_mode: str) -> ImageClipFeatureMode:
     """Return the canonical feature mode name used for saving and encoding."""
     if feature_mode in ("pooled", "last_hidden_state_no_cls"):
@@ -283,14 +270,6 @@ def _validate_partition_metadata(
             "Partition metadata lengths must match: "
             f"img={len(image_paths)}, text={len(texts)}, label={len(labels)}."
         )
-
-
-def _all_cuda_devices() -> tuple[str, ...]:
-    """Return every visible CUDA device as torch device strings."""
-    count = torch.cuda.device_count()
-    if count < 1:
-        raise ValueError("CUDA is available, but torch.cuda.device_count() is zero.")
-    return tuple("cuda:" + str(index) for index in range(count))
 
 
 def _split_contiguous(values: list[str], num_chunks: int) -> list[list[str]]:
@@ -415,11 +394,11 @@ class Thingseeg2ClipExtractor:
             if _callable_accepts_device(self.backend_factory):
                 return self.backend_factory(self, device)
             return self.backend_factory(self)
-        return HuggingFaceClipBackend(
+        return create_clip_backend(
             model_id=self.resolved_model_id,
-            model_cache_dir=self.model_cache_dir,
-            device=device,
+            devices=(device,),
             feature_mode=self.feature_mode,
+            model_cache_dir=self.model_cache_dir,
             blur_levels=self.blur_levels,
         )
 
