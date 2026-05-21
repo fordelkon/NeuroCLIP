@@ -5,6 +5,8 @@
 # python train.py experiment=atms_experiment
 
 defaults:
+  - override /extract: thingseeg2
+  - override /build_kg: thingseeg2
   - override /data: thingseeg2
   - override /model: atms
   - override /callbacks: default
@@ -12,7 +14,7 @@ defaults:
 
 tags: ["thingseeg2", "atms", "eeg2clip"]
 
-seed: 12345
+seed: 42
 optimized_metric: ${optimized_metric:${model._target_}}
 
 logger:
