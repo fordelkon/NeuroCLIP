@@ -323,7 +323,6 @@ class ThingsEEG2Dataset(Dataset):
             "subject": self.subjects[subject_idx],
             "subject_id": torch.tensor(_subject_id(self.subjects[subject_idx]), dtype=torch.long),
             "rep": torch.tensor(rep_idx, dtype=torch.long),
-            "image_index": torch.tensor(image_idx, dtype=torch.long),
         }
 
         if self.image_features is not None:
