@@ -91,27 +91,46 @@ class KnowledgeGraph:
                 self.image_to_concept[img_indices] = concept_id
             progress.advance(task)
 
-    def build_from_hybrid_embeddings(
+    def build_open_vocab_graph(
         self,
-        dataset_concepts: list[str],
-        dataset_embeddings: torch.Tensor,
+        clip_features: torch.Tensor,
+        labels: torch.Tensor,
         extended_concepts: list[str],
         extended_embeddings: torch.Tensor,
+        concept_texts: list[str] | None = None,
         k: int = 10,
         quota_dataset: int = 5,
         quota_extended: int = 5,
     ) -> None:
-        """Build knowledge graph from hybrid embeddings (open vocabulary mode).
+        """Build open vocabulary knowledge graph from dataset features and extended vocabulary.
 
         Args:
-            dataset_concepts: Concept names from dataset
-            dataset_embeddings: CLIP image feature averages [N_dataset, D]
-            extended_concepts: Extended concept names
-            extended_embeddings: CLIP text embeddings [N_extended, D]
+            clip_features: CLIP image embeddings [N, D]
+            labels: Concept labels for each image [N]
+            extended_concepts: Extended vocabulary concept names
+            extended_embeddings: CLIP text embeddings for extended concepts [N_extended, D]
+            concept_texts: Optional concept names for dataset (if None, uses "concept_{id}")
             k: Total neighbors per concept
             quota_dataset: Max neighbors from dataset
             quota_extended: Max neighbors from extended vocabulary
         """
+        # Step 1: Compute dataset concept embeddings (average pooling)
+        unique_labels = torch.unique(labels)
+        n_dataset = len(unique_labels)
+        dataset_embeddings = torch.zeros(n_dataset, clip_features.shape[1])
+        dataset_concepts = []
+
+        for concept_id in unique_labels:
+            mask = labels == concept_id
+            dataset_embeddings[concept_id] = clip_features[mask].mean(dim=0)
+
+            # Use provided concept texts or generate default names
+            if concept_texts is not None and concept_id < len(concept_texts):
+                dataset_concepts.append(concept_texts[concept_id])
+            else:
+                dataset_concepts.append(f"concept_{concept_id}")
+
+        # Step 2: Build hybrid graph from computed embeddings
         n_dataset = len(dataset_concepts)
         n_extended = len(extended_concepts)
         n_total = n_dataset + n_extended

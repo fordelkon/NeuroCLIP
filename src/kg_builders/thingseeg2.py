@@ -154,34 +154,31 @@ class Thingseeg2KGBuilder:
         self, clip_features: torch.Tensor, labels: torch.Tensor, data: dict
     ) -> dict:
         """Build open vocabulary knowledge graph."""
-        # Step 1: Compute dataset concept embeddings
-        console.print("\n[cyan]Step 1: Computing dataset concept embeddings...[/cyan]")
+        # Step 1: Prepare dataset concepts
+        console.print("\n[cyan]Step 1: Preparing dataset concepts...[/cyan]")
         unique_labels = torch.unique(labels)
         n_dataset = len(unique_labels)
-        dataset_embeddings = torch.zeros(n_dataset, clip_features.shape[1])
-        dataset_concepts = []
 
-        for concept_id in unique_labels:
-            mask = labels == concept_id
-            dataset_embeddings[concept_id] = clip_features[mask].mean(dim=0)
-            # Use text labels if available, otherwise use concept_id
-            if "text" in data:
-                texts = data["text"]
+        concept_texts = None
+        if "text" in data:
+            texts = data["text"]
+            concept_texts = []
+            for concept_id in unique_labels:
+                mask = labels == concept_id
                 concept_text = (
                     texts[mask.nonzero()[0].item()] if mask.any() else f"concept_{concept_id}"
                 )
-                dataset_concepts.append(concept_text)
-            else:
-                dataset_concepts.append(f"concept_{concept_id}")
+                concept_texts.append(concept_text)
 
-        console.print(f"  Computed {n_dataset} dataset concept embeddings")
+        console.print(f"  Prepared {n_dataset} dataset concepts")
 
         # Step 2: Expand vocabulary
         console.print(
             f"\n[cyan]Step 2: Expanding vocabulary (max={self.max_extended_concepts})...[/cyan]"
         )
         expander = WordNetExpander()
-        extended_concept_objs = expander.expand(dataset_concepts, self.max_extended_concepts)
+        base_concepts = concept_texts if concept_texts else [f"concept_{i}" for i in range(n_dataset)]
+        extended_concept_objs = expander.expand(base_concepts, self.max_extended_concepts)
         extended_concepts = [c.name for c in extended_concept_objs]
 
         console.print(f"  Expanded to {len(extended_concepts)} additional concepts")
@@ -204,11 +201,12 @@ class Thingseeg2KGBuilder:
         # Step 4: Build open knowledge graph
         console.print(f"\n[cyan]Step 4: Building open knowledge graph (k={self.k})...[/cyan]")
         kg = KnowledgeGraph()
-        kg.build_from_hybrid_embeddings(
-            dataset_concepts=dataset_concepts,
-            dataset_embeddings=dataset_embeddings,
+        kg.build_open_vocab_graph(
+            clip_features=clip_features,
+            labels=labels,
             extended_concepts=extended_concepts,
             extended_embeddings=extended_embeddings,
+            concept_texts=concept_texts,
             k=self.k,
             quota_dataset=self.quota_dataset,
             quota_extended=self.quota_extended,
