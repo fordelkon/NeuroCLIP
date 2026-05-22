@@ -47,7 +47,28 @@ def _load_pt(path: Path) -> dict[str, Any]:
 
 
 class ThingsEEG2Dataset(Dataset):
-    """THINGS-EEG2 preprocessed EEG aligned with offline extracted CLIP features."""
+    """THINGS-EEG2 preprocessed EEG aligned with offline extracted CLIP features.
+
+    __getitem__ returns a dictionary with the following keys:
+
+    Core fields (always present):
+        - idx: Sample index in the dataset [torch.long]
+        - eeg: Preprocessed EEG data [n_channels, n_timepoints] [torch.float32]
+        - label: Concept/class label (0-1853 for ThingsEEG2) [torch.long]
+        - img_path: Path to the stimulus image [str]
+        - text: Text description of the concept [str]
+        - subject: Subject identifier (e.g., "sub-01") [str]
+        - subject_id: Numeric subject ID (e.g., 1 for "sub-01") [torch.long]
+        - rep: Repetition index (-1 if average_reps=True, 0-3 otherwise) [torch.long]
+
+    Optional fields (depending on configuration):
+        - image_features: CLIP image embedding [D] [torch.float32]
+        - text_features: CLIP text embedding [D] [torch.float32]
+
+    Multi-view mode fields (when multiple image feature views are available):
+        - selected_view: View name selected by match_label (e.g., "no_blur", "mid_blur") [str]
+        - view_index: Numeric index of the selected view [int]
+    """
 
     def __init__(
         self,
