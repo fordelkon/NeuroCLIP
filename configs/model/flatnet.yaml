@@ -27,7 +27,7 @@ alpha: 0.99
 
 # Knowledge graph smoothing
 enable_kg_smooth: true
-kg_lambda: 0.4
+kg_lambda: 0.3
 kg_save_dir: ${build_kg.save_dir}
 kg_k: ${build_kg.k}
 kg_n_neighbors: 10

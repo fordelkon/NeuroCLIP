@@ -32,10 +32,10 @@ alpha: 0.99
 
 # Knowledge graph smoothing
 enable_kg_smooth: true
-kg_lambda: 0.2
+kg_lambda: 0.3
 kg_save_dir: ${build_kg.save_dir}
 kg_k: ${build_kg.k}
-kg_n_neighbors: 5
+kg_n_neighbors: 10
 
 # compile model for faster training with pytorch 2.0
 compile: false
