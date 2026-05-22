@@ -22,6 +22,7 @@ class ClipV1LitModule(LightningModule):
     def __init__(
         self,
         eegnet: nn.Module,
+        kgnet: nn.Module | None,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler.LRScheduler | None,
         compile: bool,
@@ -41,9 +42,10 @@ class ClipV1LitModule(LightningModule):
     ) -> None:
         """Initialize the CLIP alignment module."""
         super().__init__()
-        self.save_hyperparameters(logger=False, ignore=["eegnet"])
+        self.save_hyperparameters(logger=False, ignore=["eegnet", "kgnet"])
 
         self.eegnet = eegnet
+        self.kgnet = kgnet
         self.retrieval_k_list = retrieval_k_list or [2, 4, 10, 200]
         self.modality = modality
         self.alpha = alpha
@@ -116,16 +118,49 @@ class ClipV1LitModule(LightningModule):
 
         # Open vocab mode: use concept embeddings
         if self.kg.concept_embeddings is not None:
-            for i, concept_id in enumerate(labels):
-                neighbor_embs = self.kg.get_concept_neighbor_embeddings(
-                    concept_id.item(),
-                    self.hparams.kg_n_neighbors,
-                )
-                if neighbor_embs is not None and len(neighbor_embs) > 0:
-                    neighbor_avg = neighbor_embs.mean(dim=0).to(image_features.device)
-                    smoothed[i] = (1 - self.hparams.kg_lambda) * image_features[
-                        i
-                    ] + self.hparams.kg_lambda * neighbor_avg
+            if self.kgnet is not None:
+                # GNN mode: batch process with attention
+                neighbor_embs_list = []
+                neighbor_scores_list = []
+                valid_indices = []
+
+                for i, concept_id in enumerate(labels):
+                    neighbor_embs = self.kg.get_concept_neighbor_embeddings(
+                        concept_id.item(),
+                        self.hparams.kg_n_neighbors,
+                    )
+                    if neighbor_embs is not None and len(neighbor_embs) > 0:
+                        neighbor_embs_list.append(neighbor_embs)
+                        neighbor_scores = self.kg.concept_neighbor_scores[
+                            concept_id.item(), : self.hparams.kg_n_neighbors
+                        ]
+                        neighbor_scores_list.append(neighbor_scores)
+                        valid_indices.append(i)
+
+                if valid_indices:
+                    neighbor_embs_batch = torch.stack(neighbor_embs_list).to(
+                        image_features.device
+                    )
+                    neighbor_scores_batch = torch.stack(neighbor_scores_list).to(
+                        image_features.device
+                    )
+                    target_batch = image_features[valid_indices]
+
+                    smoothed[valid_indices] = self.kgnet(
+                        target_batch, neighbor_embs_batch, neighbor_scores_batch
+                    )
+            else:
+                # Simple weighted average mode
+                for i, concept_id in enumerate(labels):
+                    neighbor_embs = self.kg.get_concept_neighbor_embeddings(
+                        concept_id.item(),
+                        self.hparams.kg_n_neighbors,
+                    )
+                    if neighbor_embs is not None and len(neighbor_embs) > 0:
+                        neighbor_avg = neighbor_embs.mean(dim=0).to(image_features.device)
+                        smoothed[i] = (1 - self.hparams.kg_lambda) * image_features[
+                            i
+                        ] + self.hparams.kg_lambda * neighbor_avg
 
             return F.normalize(smoothed, dim=1)
 
@@ -143,20 +178,57 @@ class ClipV1LitModule(LightningModule):
         while hasattr(dataset, "dataset"):
             dataset = dataset.dataset
 
-        for i, concept_id in enumerate(labels):
-            neighbor_indices = self.kg.get_image_neighbors(
-                concept_id.item(),
-                n_same_concept=self.hparams.kg_n_neighbors,
-                n_neighbor_concept=0,
-            )
-            if len(neighbor_indices) > 0:
-                neighbor_features = torch.stack(
-                    [dataset[n_idx]["image_features"] for n_idx in neighbor_indices]
-                ).to(image_features.device)
-                neighbor_avg = neighbor_features.mean(dim=0)
-                smoothed[i] = (1 - self.hparams.kg_lambda) * image_features[
-                    i
-                ] + self.hparams.kg_lambda * neighbor_avg
+        if self.kgnet is not None:
+            # GNN mode: batch process
+            neighbor_features_list = []
+            neighbor_scores_list = []
+            valid_indices = []
+
+            for i, concept_id in enumerate(labels):
+                neighbor_indices = self.kg.get_image_neighbors(
+                    concept_id.item(),
+                    n_same_concept=self.hparams.kg_n_neighbors,
+                    n_neighbor_concept=0,
+                )
+                if len(neighbor_indices) > 0:
+                    neighbor_features = torch.stack(
+                        [dataset[n_idx]["image_features"] for n_idx in neighbor_indices]
+                    )
+                    neighbor_features_list.append(neighbor_features)
+                    neighbor_scores = self.kg.concept_neighbor_scores[
+                        concept_id.item(), : len(neighbor_indices)
+                    ]
+                    neighbor_scores_list.append(neighbor_scores)
+                    valid_indices.append(i)
+
+            if valid_indices:
+                neighbor_features_batch = torch.stack(neighbor_features_list).to(
+                    image_features.device
+                )
+                neighbor_scores_batch = torch.stack(neighbor_scores_list).to(
+                    image_features.device
+                )
+                target_batch = image_features[valid_indices]
+
+                smoothed[valid_indices] = self.kgnet(
+                    target_batch, neighbor_features_batch, neighbor_scores_batch
+                )
+        else:
+            # Simple weighted average mode
+            for i, concept_id in enumerate(labels):
+                neighbor_indices = self.kg.get_image_neighbors(
+                    concept_id.item(),
+                    n_same_concept=self.hparams.kg_n_neighbors,
+                    n_neighbor_concept=0,
+                )
+                if len(neighbor_indices) > 0:
+                    neighbor_features = torch.stack(
+                        [dataset[n_idx]["image_features"] for n_idx in neighbor_indices]
+                    ).to(image_features.device)
+                    neighbor_avg = neighbor_features.mean(dim=0)
+                    smoothed[i] = (1 - self.hparams.kg_lambda) * image_features[
+                        i
+                    ] + self.hparams.kg_lambda * neighbor_avg
 
         return F.normalize(smoothed, dim=1)
 
@@ -444,6 +516,7 @@ class ClipV1LitModule(LightningModule):
         """Optionally compile the EEG network for training."""
         if self.hparams.compile and stage == "fit":
             self.eegnet = torch.compile(self.eegnet)
+            self.kgnet = torch.compile(self.kgnet) if self.kgnet is not None else None
 
     def configure_optimizers(self) -> dict[str, Any]:
         """Configure optimizer and optional scheduler."""

@@ -27,8 +27,8 @@ use_open_vocab: true
 max_extended_concepts: 3000 # Number of concepts to add from external KBs
 
 # Neighbor selection quotas (only used when use_open_vocab=true)
-quota_dataset: 5 # Max neighbors from dataset (visual similarity)
-quota_extended: 5 # Max neighbors from extended vocab (semantic associations)
+quota_dataset: 2 # Max neighbors from dataset (visual similarity)
+quota_extended: 8 # Max neighbors from extended vocab (semantic associations)
 
 # Output format: 'pt' (default) or 'jsonl' (human-readable) or 'all'
 output_format: all

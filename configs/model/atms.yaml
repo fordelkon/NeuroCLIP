@@ -30,6 +30,13 @@ eegnet:
   pool_kernel: 51
   pool_stride: 5
 
+kgnet:
+  _target_: src.models.components.graph_smoothing.GraphAttentionSmoothing
+  embed_dim: ${clip_dim:${data.model_name}}
+  n_heads: 4
+  dropout: 0.1
+  use_kg_scores: true
+
 retrieval_k_list: [2, 4, 10, 200]
 modality: eeg2img
 loss_type: cliploss
