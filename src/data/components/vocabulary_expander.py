@@ -87,3 +87,30 @@ class WordNetExpander(VocabularyExpander):
                     seen.add(name.lower())
 
         return extended[:max_concepts]
+
+
+class VisualPrototypeExpander(VocabularyExpander):
+    """Expand vocabulary using fixed visual prototypes."""
+
+    def __init__(self):
+        from src.data.components.visual_prototypes import get_all_prototypes
+
+        self.prototypes = get_all_prototypes()
+
+    def expand(self, max_concepts: int) -> list[ExtendedConcept]:
+        """Return fixed visual prototypes as extended concepts.
+
+        Args:
+            max_concepts: Maximum number of prototypes to return
+
+        Returns:
+            List of visual prototype concepts
+        """
+        return [
+            ExtendedConcept(
+                name=proto,
+                source="visual_prototype",
+                metadata={"type": "fixed_prototype"},
+            )
+            for proto in self.prototypes[:max_concepts]
+        ]

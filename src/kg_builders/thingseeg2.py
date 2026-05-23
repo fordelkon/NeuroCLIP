@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from src.data.components.knowledge_graph import KnowledgeGraph
-from src.data.components.vocabulary_expander import WordNetExpander
+from src.data.components.vocabulary_expander import WordNetExpander, VisualPrototypeExpander
 from src.utils.config_resolvers import (
     create_clip_backend,
     resolve_clip_model_id,
@@ -35,6 +35,7 @@ class Thingseeg2KGBuilder:
         partition: str,
         seed: int,
         use_open_vocab: bool = False,
+        vocab_expander_type: str = "wordnet",
         max_extended_concepts: int = 3000,
         quota_dataset: int = 5,
         quota_extended: int = 5,
@@ -50,6 +51,7 @@ class Thingseeg2KGBuilder:
         self.partition = partition
         self.seed = seed
         self.use_open_vocab = use_open_vocab
+        self.vocab_expander_type = vocab_expander_type
         self.max_extended_concepts = max_extended_concepts
         self.quota_dataset = quota_dataset
         self.quota_extended = quota_extended
@@ -173,15 +175,25 @@ class Thingseeg2KGBuilder:
         console.print(f"  Prepared {n_dataset} dataset concepts")
 
         # Step 2: Expand vocabulary
-        console.print(
-            f"\n[cyan]Step 2: Expanding vocabulary (max={self.max_extended_concepts})...[/cyan]"
-        )
-        expander = WordNetExpander()
+        if self.vocab_expander_type == "visual_prototype":
+            console.print("\n[cyan]Step 2: Loading visual prototypes...[/cyan]")
+            expander = VisualPrototypeExpander()
+            console.print("  Using fixed visual prototype set")
+        else:
+            console.print(
+                f"\n[cyan]Step 2: Expanding vocabulary (max={self.max_extended_concepts})...[/cyan]"
+            )
+            expander = WordNetExpander()
+            console.print("  Using WordNet expander")
+
         base_concepts = concept_texts if concept_texts else [f"concept_{i}" for i in range(n_dataset)]
         extended_concept_objs = expander.expand(base_concepts, self.max_extended_concepts)
         extended_concepts = [c.name for c in extended_concept_objs]
 
-        console.print(f"  Expanded to {len(extended_concepts)} additional concepts")
+        if self.vocab_expander_type == "visual_prototype":
+            console.print(f"  Loaded {len(extended_concepts)} visual prototypes")
+        else:
+            console.print(f"  Expanded to {len(extended_concepts)} additional concepts")
 
         # Step 3: Encode extended concepts with CLIP text
         console.print(
@@ -260,6 +272,7 @@ class Thingseeg2KGBuilder:
         table.add_row("Neighbors (k)", str(self.k))
 
         if self.use_open_vocab:
+            table.add_row("Vocab expander", self.vocab_expander_type)
             table.add_row("Max extended concepts", str(self.max_extended_concepts))
             table.add_row("Quota dataset", str(self.quota_dataset))
             table.add_row("Quota extended", str(self.quota_extended))
