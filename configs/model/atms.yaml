@@ -33,8 +33,8 @@ eegnet:
 kgnet:
   _target_: src.models.components.graph_smoothing.GraphAttentionSmoothing
   embed_dim: ${clip_dim:${data.model_name}}
-  n_heads: 4
-  dropout: 0.1
+  n_heads: 1
+  dropout: 0.3
   use_kg_scores: true
 
 retrieval_k_list: [2, 4, 10, 200]
@@ -44,10 +44,10 @@ alpha: 0.99
 
 # Knowledge graph smoothing
 enable_kg_smooth: true
-kg_lambda: 0.3
+kg_lambda: 0.01
 kg_save_dir: ${build_kg.save_dir}
 kg_k: ${build_kg.k}
-kg_n_neighbors: 10
+kg_n_neighbors: 5
 
 # compile model for faster training with pytorch 2.0
 compile: false

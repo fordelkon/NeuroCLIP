@@ -1,7 +1,7 @@
 _target_: src.kg_builders.thingseeg2.Thingseeg2KGBuilder
 
 # Number of neighbors per concept
-k: 10
+k: 5
 
 # Reuse extractor configuration for consistency
 clip_features_base_dir: ${extract.save_dir}
@@ -23,12 +23,14 @@ seed: 42
 # Open vocabulary mode (set to true to enable extended vocabulary)
 use_open_vocab: true
 
-# Vocabulary expansion (only used when use_open_vocab=true)
+vocab_expander_type: visual_prototype # Options: 'wordnet' or 'visual_prototype'
+
+# Vocabulary expansion (only used when use_open_vocab=true and vocab_expander_type='wordnet')
 max_extended_concepts: 3000 # Number of concepts to add from external KBs
 
 # Neighbor selection quotas (only used when use_open_vocab=true)
-quota_dataset: 2 # Max neighbors from dataset (visual similarity)
-quota_extended: 8 # Max neighbors from extended vocab (semantic associations)
+quota_dataset: 0 # Max neighbors from dataset (visual similarity)
+quota_extended: 5 # Max neighbors from extended vocab (semantic associations)
 
 # Output format: 'pt' (default) or 'jsonl' (human-readable) or 'all'
 output_format: all
