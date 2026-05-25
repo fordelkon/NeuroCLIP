@@ -9,7 +9,10 @@ from rich.panel import Panel
 from rich.table import Table
 
 from src.data.components.knowledge_graph import KnowledgeGraph
-from src.data.components.vocabulary_expander import WordNetExpander, VisualPrototypeExpander
+from src.data.components.vocabulary_expander import (
+    VisualPrototypeExpander,
+    WordNetExpander,
+)
 from src.utils.config_resolvers import (
     create_clip_backend,
     resolve_clip_model_id,
@@ -186,7 +189,9 @@ class Thingseeg2KGBuilder:
             expander = WordNetExpander()
             console.print("  Using WordNet expander")
 
-        base_concepts = concept_texts if concept_texts else [f"concept_{i}" for i in range(n_dataset)]
+        base_concepts = (
+            concept_texts if concept_texts else [f"concept_{i}" for i in range(n_dataset)]
+        )
         extended_concept_objs = expander.expand(base_concepts, self.max_extended_concepts)
         extended_concepts = [c.name for c in extended_concept_objs]
 
