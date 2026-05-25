@@ -36,6 +36,8 @@ kgnet:
   n_heads: 1
   dropout: 0.3
   use_kg_scores: true
+  num_subjects: 10
+  use_subject_specific: true
 
 retrieval_k_list: [2, 4, 10, 200]
 modality: eeg2img

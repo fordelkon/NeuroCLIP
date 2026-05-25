@@ -107,6 +107,7 @@ class ClipV1LitModule(LightningModule):
         self,
         image_features: torch.Tensor,
         labels: torch.Tensor,
+        subject_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute graph-smoothed CLIP targets.
 
@@ -138,16 +139,19 @@ class ClipV1LitModule(LightningModule):
                         valid_indices.append(i)
 
                 if valid_indices:
-                    neighbor_embs_batch = torch.stack(neighbor_embs_list).to(
-                        image_features.device
-                    )
+                    neighbor_embs_batch = torch.stack(neighbor_embs_list).to(image_features.device)
                     neighbor_scores_batch = torch.stack(neighbor_scores_list).to(
                         image_features.device
                     )
                     target_batch = image_features[valid_indices]
 
+                    # Extract subject_ids for valid indices (convert to 0-indexed)
+                    batch_subject_ids = None
+                    if subject_ids is not None:
+                        batch_subject_ids = subject_ids[valid_indices] - 1
+
                     smoothed[valid_indices] = self.kgnet(
-                        target_batch, neighbor_embs_batch, neighbor_scores_batch
+                        target_batch, neighbor_embs_batch, neighbor_scores_batch, batch_subject_ids
                     )
             else:
                 # Simple weighted average mode
@@ -205,13 +209,16 @@ class ClipV1LitModule(LightningModule):
                 neighbor_features_batch = torch.stack(neighbor_features_list).to(
                     image_features.device
                 )
-                neighbor_scores_batch = torch.stack(neighbor_scores_list).to(
-                    image_features.device
-                )
+                neighbor_scores_batch = torch.stack(neighbor_scores_list).to(image_features.device)
                 target_batch = image_features[valid_indices]
 
+                # Extract subject_ids for valid indices (convert to 0-indexed)
+                batch_subject_ids = None
+                if subject_ids is not None:
+                    batch_subject_ids = subject_ids[valid_indices] - 1
+
                 smoothed[valid_indices] = self.kgnet(
-                    target_batch, neighbor_features_batch, neighbor_scores_batch
+                    target_batch, neighbor_features_batch, neighbor_scores_batch, batch_subject_ids
                 )
         else:
             # Simple weighted average mode
@@ -248,7 +255,9 @@ class ClipV1LitModule(LightningModule):
 
         # Apply graph smoothing if enabled
         if self.hparams.enable_kg_smooth and self.kg is not None and labels is not None:
-            image_features = self.get_graph_smoothed_target(image_features, labels)
+            image_features = self.get_graph_smoothed_target(
+                image_features, labels, batch.get("subject_id")
+            )
 
         if self.modality == "eeg2img":
             loss = self._contrastive_loss(eeg_features, image_features, logit_scale)
