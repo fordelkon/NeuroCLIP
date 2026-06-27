@@ -14,7 +14,7 @@ thingseeg2_raw_dir: ${paths.data_dir}/thingseeg2-eegs
 thingseeg2_img_dir: ${paths.data_dir}/thingseeg2-images
 
 # path to preprocessed THINGS-EEG2 EEG output
-thingseeg2_preprocessed_dir: ${paths.data_dir}/thingseeg2-eeg2-250hz
+thingseeg2_preprocessed_dir: ${paths.data_dir}/thingseeg2-eegs-250hz
 
 # path to extracted THINGS-EEG2 CLIP features
 thingseeg2_clip_features_dir: ${paths.data_dir}/thingseeg2-clip-features

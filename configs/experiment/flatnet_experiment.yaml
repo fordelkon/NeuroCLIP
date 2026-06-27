@@ -5,6 +5,8 @@
 # python train.py experiment=flatnet_experiment
 
 defaults:
+  - override /extract: thingseeg2
+  - override /build_kg: thingseeg2
   - override /data: thingseeg2
   - override /model: flatnet
   - override /callbacks: default
@@ -12,7 +14,7 @@ defaults:
 
 tags: ["thingseeg2", "flatnet", "eeg2clip"]
 
-seed: 12345
+seed: 42
 optimized_metric: ${optimized_metric:${model._target_}}
 
 logger:

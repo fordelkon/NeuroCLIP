@@ -28,6 +28,9 @@ dependencies = [
     "scikit-learn",
     "transformers",
     "open-clip-torch",
+    "nltk",
+    "pandas",
+    "seaborn",
 ]
 
 [tool.pytest.ini_options]

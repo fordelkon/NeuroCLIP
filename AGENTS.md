@@ -79,8 +79,8 @@ Platform script wrappers:
 
 - The default training config uses `data=mnist` and `model=mnist`.
 - The default callback config is tuned for NICE/CLIP metrics and monitors `val/top1_acc`; MNIST runs usually need `callbacks.model_checkpoint.monitor=val/acc callbacks.early_stopping.monitor=val/acc`.
-- THINGS-EEG2 CLIP training uses `configs/model/nice.yaml` or `configs/model/atms.yaml`.
-- THINGS-EEG2 experiment entrypoints are `experiment=nice_experiment`, `experiment=atms_experiment`, and `experiment=flatnet_experiment`.
+- THINGS-EEG2 CLIP training uses model configs under `configs/model/`, such as `nice.yaml`, `atms.yaml`, `flatnet.yaml`
+- THINGS-EEG2 experiment entrypoints include `experiment=nice_experiment`, `experiment=atms_experiment`, `experiment=flatnet_experiment`
 - `model=nice` uses `src.models.components.simple_nice.NICE`.
 - `model=atms` uses `src.models.components.simple_atms.ATMS`.
 - ATMS defaults to `model.eegnet.use_subject_embedding=false`, matching intra-subject runs. For cross-subject ATMS experiments, enable it explicitly with `model.eegnet.use_subject_embedding=true`.
@@ -131,12 +131,16 @@ fit.
    - Keep constructor parameters Hydra-friendly: primitives, lists, dictionaries, or optional values.
    - Keep comments and docstrings in English.
 
-3. Add the component and config.
+3. Add the component, model config, experiment config, and sweep config.
 
    - Put reusable neural network pieces under `src/models/components/`.
+   - If the model is a standalone encoder with a narrow project-specific wrapper, a direct module under `src/models/` is also acceptable; follow the closest existing pattern.
    - Add `configs/model/<name>.yaml` when the model should be selectable with `model=<name>`.
    - For CLIP alignment models, `configs/model/nice.yaml` and `configs/model/atms.yaml` are good references for wrapper structure, optimizer/scheduler fields, retrieval settings, modality, loss, alpha, and compile.
    - Use a different top-level `_target_` only when the model needs a different Lightning module.
+   - Add `configs/experiment/<name>_experiment.yaml` when the model should have a reusable THINGS-EEG2 experiment entrypoint. Override `/data: thingseeg2`, `/model: <name>`, `/callbacks: default`, and `/trainer: default`; set tags, logger group names, seed, and `optimized_metric`.
+   - Add `configs/hparams_search/<name>_optuna.yaml` only for source-backed, shape-safe sweep parameters. Pair it with the matching experiment config, for example `-m hparams_search=<name>_optuna experiment=<name>_experiment`.
+   - Avoid sweep parameters that require coupled derived dimensions unless the config updates every dependent value. Examples: hidden sizes must divide attention heads; patch or pooling choices that change flatten dimensions need corresponding projection dimensions.
 
 4. Handle batch metadata explicitly.
 
@@ -148,21 +152,24 @@ fit.
 5. Add focused tests before behavior changes.
 
    - Add or extend component tests for tensor shapes, required inputs, and error cases.
-   - Extend `tests/test_configs.py` for new Hydra model configs.
+   - Extend `tests/test_configs.py` for the new Hydra model config, experiment entrypoint, Optuna search space, CLIP projection dim resolver, and selected-channel resolver when relevant.
    - Extend Lightning module tests when routing, loss behavior, metrics, or compatibility changes.
    - Extend dataset/datamodule tests only when the model truly needs new data fields or split behavior.
 
 6. Verify the smallest relevant surface.
 
 ```powershell
-uv run --no-sync pytest tests/test_<model>.py tests/test_clipv1_module.py tests/test_configs.py
-uv run --no-sync pre-commit run --files configs/model/<name>.yaml src/models/components/<model>.py tests/test_<model>.py tests/test_clipv1_module.py tests/test_configs.py
+uv run --no-sync pytest tests/test_<model>.py tests/test_configs.py
+uv run --no-sync pre-commit run --files configs/model/<name>.yaml configs/experiment/<name>_experiment.yaml configs/hparams_search/<name>_optuna.yaml src/models/components/<model>.py tests/test_<model>.py tests/test_configs.py
 ```
 
-Adjust the file list to the actual files touched. For reviewer-friendly
-commits, keep tightly coupled component, config, routing, and test changes
-together when they form one inseparable integration; split unrelated refactors,
-dataset changes, or training workflow changes. Exclude unrelated dirty files.
+Adjust the file list to the actual files touched. If the model lives directly
+under `src/models/`, use that path instead of `src/models/components/<model>.py`.
+Include `tests/test_clipv1_module.py` only when the Lightning routing or loss
+contract changed. For reviewer-friendly commits, keep tightly coupled
+component, config, experiment, sweep, and test changes together when they form
+one inseparable integration; split unrelated refactors, dataset changes, or
+training workflow changes. Exclude unrelated dirty files.
 
 ## Verification
 

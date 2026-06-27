@@ -44,6 +44,22 @@ def _write_clip_partition(path: Path) -> None:
     )
 
 
+def _write_multiview_clip_partition(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "image_path": ["img-a.jpg", "img-b.jpg"],
+            "text": ["alpha", "beta"],
+            "label": torch.tensor([7, 8]),
+            "image_features_mid_blur": torch.tensor([[10.0, 100.0], [20.0, 200.0]]),
+            "image_features_no_blur": torch.tensor([[11.0, 110.0], [21.0, 210.0]]),
+            "image_features_heavy_blur": torch.tensor([[12.0, 120.0], [22.0, 220.0]]),
+            "text_features": torch.tensor([[3.0, 30.0], [4.0, 40.0]]),
+        },
+        path,
+    )
+
+
 def _write_dataset_files(tmp_path: Path) -> tuple[Path, Path]:
     eeg_dir = tmp_path / "eeg"
     clip_dir = tmp_path / "clip" / "ViT-B-32" / "laion-CLIP-ViT-B-32-laion2B-s34B-b79K" / "pooled"
@@ -114,6 +130,86 @@ def test_thingseeg2_dataset_can_average_repetitions_and_select_channels(tmp_path
     assert sample["eeg"].shape == (2, 5)
     assert torch.equal(sample["eeg"], expected)
     assert dataset.ch_names == ["Oz", "P7"]
+
+
+def test_thingseeg2_dataset_initializes_ubp_match_labels_for_multiview_features(
+    tmp_path: Path,
+) -> None:
+    eeg_dir, clip_dir = _write_dataset_files(tmp_path)
+    _write_multiview_clip_partition(clip_dir / "training.pt")
+
+    dataset = ThingsEEG2Dataset(
+        eeg_data_dir=eeg_dir,
+        clip_features_dir=clip_dir,
+        subjects="sub-01",
+        partition="training",
+        average_reps=False,
+    )
+
+    assert dataset.view_names == ["mid_blur", "no_blur", "heavy_blur"]
+    assert dataset.match_label.tolist() == [1, 1, 1, 1, 1, 1]
+    assert dataset.describe()["image_features_shape"] == {
+        "mid_blur": (2, 2),
+        "no_blur": (2, 2),
+        "heavy_blur": (2, 2),
+    }
+
+    sample = dataset[0]
+    assert sample["selected_view"] == "no_blur"
+    assert sample["view_index"] == 1
+    assert sample["image_features"].tolist() == [11.0, 110.0]
+
+
+def test_thingseeg2_dataset_updates_and_resets_ubp_match_labels(tmp_path: Path) -> None:
+    eeg_dir, clip_dir = _write_dataset_files(tmp_path)
+    _write_multiview_clip_partition(clip_dir / "training.pt")
+    dataset = ThingsEEG2Dataset(
+        eeg_data_dir=eeg_dir,
+        clip_features_dir=clip_dir,
+        subjects="sub-01",
+        partition="training",
+        average_reps=False,
+    )
+
+    dataset.update_match_labels(
+        indices=np.array([0, 3], dtype=np.int64),
+        labels=np.array([0, 2], dtype=np.int32),
+    )
+
+    low_confidence = dataset[0]
+    high_confidence = dataset[3]
+    assert low_confidence["selected_view"] == "mid_blur"
+    assert low_confidence["view_index"] == 0
+    assert low_confidence["image_features"].tolist() == [10.0, 100.0]
+    assert high_confidence["selected_view"] == "heavy_blur"
+    assert high_confidence["view_index"] == 2
+    assert high_confidence["image_features"].tolist() == [22.0, 220.0]
+
+    dataset.reset_match_labels()
+
+    assert dataset.match_label.tolist() == [1, 1, 1, 1, 1, 1]
+    reset_sample = dataset[3]
+    assert reset_sample["selected_view"] == "no_blur"
+    assert reset_sample["view_index"] == 1
+    assert reset_sample["image_features"].tolist() == [21.0, 210.0]
+
+
+def test_thingseeg2_dataset_rejects_ubp_match_label_updates_for_single_view_features(
+    tmp_path: Path,
+) -> None:
+    eeg_dir, clip_dir = _write_dataset_files(tmp_path)
+    dataset = ThingsEEG2Dataset(
+        eeg_data_dir=eeg_dir,
+        clip_features_dir=clip_dir,
+        subjects="sub-01",
+        partition="training",
+    )
+
+    with pytest.raises(ValueError, match="Multi-view features required"):
+        dataset.update_match_labels(
+            indices=np.array([0], dtype=np.int64),
+            labels=np.array([0], dtype=np.int32),
+        )
 
 
 def test_thingseeg2_dataset_describes_loaded_structure(tmp_path: Path) -> None:

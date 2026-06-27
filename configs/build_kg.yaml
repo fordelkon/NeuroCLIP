@@ -1,0 +1,23 @@
+# @package _global_
+
+# specify here default KG building configuration
+defaults:
+  - _self_
+  - extract: thingseeg2
+  - data: thingseeg2
+  - build_kg: thingseeg2
+  - paths: default
+  - extras: default
+  - hydra: default
+
+  # optional local config for machine/user specific settings
+  - optional local: default
+
+# task name, determines output directory path
+task_name: "build_kg"
+
+# tags to help you identify KG building runs
+tags: ["kg_builder"]
+
+# seed for reproducible neighbor selection
+seed: 42

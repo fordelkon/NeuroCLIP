@@ -9,6 +9,7 @@ from typing import Any, Literal, Protocol, Union
 
 import numpy as np
 import torch
+from PIL import ImageFilter
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
@@ -24,7 +25,12 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from src.utils.config_resolvers import resolve_clip_model_id, sanitize_clip_model_name
+from src.utils.config_resolvers import (
+    create_clip_backend,
+    resolve_clip_model_id,
+    resolve_devices,
+    sanitize_clip_model_name,
+)
 
 StrPath = Union[str, os.PathLike[str]]
 ImageClipFeatureMode = Literal["pooled", "last_hidden_state_no_cls"]
@@ -32,11 +38,18 @@ ImageClipFeatureMode = Literal["pooled", "last_hidden_state_no_cls"]
 console = Console()
 
 
+def apply_gaussian_blur(image, sigma: float):
+    """Apply Gaussian blur to a PIL image."""
+    if sigma <= 0:
+        return image
+    return image.filter(ImageFilter.GaussianBlur(radius=sigma))
+
+
 class ClipBackend(Protocol):
     """Interface used by the extractor to encode CLIP features."""
 
-    def encode_images(self, image_paths: list[str]) -> torch.Tensor:
-        """Encode a batch of image paths."""
+    def encode_images(self, image_paths: list[str]) -> dict[str, torch.Tensor]:
+        """Encode a batch of image paths into multiple views."""
 
     def encode_texts(self, texts: list[str]) -> torch.Tensor:
         """Encode a batch of text labels."""
@@ -63,6 +76,7 @@ class HuggingFaceClipBackend:
         model_cache_dir: StrPath | None,
         device: str,
         feature_mode: ImageClipFeatureMode,
+        blur_levels: dict[str, float] | None = None,
     ) -> None:
         from PIL import Image
         from transformers import AutoTokenizer, CLIPImageProcessor, CLIPModel
@@ -70,6 +84,7 @@ class HuggingFaceClipBackend:
         self.image_cls = Image
         self.device = device
         self.feature_mode = feature_mode
+        self.blur_levels = blur_levels or {"no_blur": 0.0}
         self.model = CLIPModel.from_pretrained(model_id, cache_dir=model_cache_dir)
         self.model = self.model.to(device)
         self.model.eval()
@@ -78,24 +93,31 @@ class HuggingFaceClipBackend:
         )
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=model_cache_dir)
 
-    def encode_images(self, image_paths: list[str]) -> torch.Tensor:
-        """Encode a batch of images."""
+    def encode_images(self, image_paths: list[str]) -> dict[str, torch.Tensor]:
+        """Encode a batch of images with multiple blur levels."""
         images = []
         for path in image_paths:
             with self.image_cls.open(path) as image:
                 images.append(image.convert("RGB"))
-        try:
-            inputs = self.image_processor(images, return_tensors="pt")
-            inputs = {key: value.to(self.device) for key, value in inputs.items()}
 
-            with torch.inference_mode():
-                if self.feature_mode == "pooled":
-                    features = _projected_pooler_output(self.model.get_image_features(**inputs))
-                    features = features / features.norm(dim=-1, keepdim=True)
-                else:
-                    vision_outputs = self.model.vision_model(**inputs)
-                    features = vision_outputs.last_hidden_state[:, 1:, :]
-            return features.detach().cpu().float()
+        try:
+            features_dict = {}
+            for view_name, sigma in self.blur_levels.items():
+                blurred_images = [apply_gaussian_blur(img, sigma) for img in images]
+                inputs = self.image_processor(blurred_images, return_tensors="pt")
+                inputs = {key: value.to(self.device) for key, value in inputs.items()}
+
+                with torch.inference_mode():
+                    if self.feature_mode == "pooled":
+                        features = _projected_pooler_output(
+                            self.model.get_image_features(**inputs)
+                        )
+                        features = features / features.norm(dim=-1, keepdim=True)
+                    else:
+                        vision_outputs = self.model.vision_model(**inputs)
+                        features = vision_outputs.last_hidden_state[:, 1:, :]
+                features_dict[view_name] = features.detach().cpu().float()
+            return features_dict
         finally:
             for image in images:
                 image.close()
@@ -127,7 +149,7 @@ class MultiDeviceClipBackend:
             raise ValueError("MultiDeviceClipBackend requires at least two backends.")
         self.backends = list(backends)
 
-    def encode_images(self, image_paths: list[str]) -> torch.Tensor:
+    def encode_images(self, image_paths: list[str]) -> dict[str, torch.Tensor]:
         """Encode a batch of images across all configured devices."""
         return self._encode_split(image_paths, "encode_images")
 
@@ -140,7 +162,9 @@ class MultiDeviceClipBackend:
         for backend in self.backends:
             backend.close()
 
-    def _encode_split(self, values: list[str], method_name: str) -> torch.Tensor:
+    def _encode_split(
+        self, values: list[str], method_name: str
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
         chunks = _split_contiguous(values, len(self.backends))
         work = [
             (index, backend, chunk)
@@ -150,7 +174,7 @@ class MultiDeviceClipBackend:
         if not work:
             raise ValueError("Cannot encode an empty batch.")
 
-        outputs: list[torch.Tensor | None] = [None] * len(work)
+        outputs: list[torch.Tensor | dict[str, torch.Tensor] | None] = [None] * len(work)
         with ThreadPoolExecutor(max_workers=len(work)) as executor:
             futures = [
                 executor.submit(getattr(backend, method_name), chunk) for _, backend, chunk in work
@@ -158,6 +182,14 @@ class MultiDeviceClipBackend:
             for output_index, future in enumerate(futures):
                 outputs[output_index] = future.result()
 
+        if isinstance(outputs[0], dict):
+            view_names = outputs[0].keys()
+            return {
+                view_name: torch.cat(
+                    [output[view_name] for output in outputs if output is not None], dim=0
+                )
+                for view_name in view_names
+            }
         return torch.cat([output for output in outputs if output is not None], dim=0)
 
 
@@ -204,24 +236,6 @@ def resolve_model_id(model_name: str, model_id: str | None = None) -> tuple[str,
     return resolve_clip_model_id(model_name, model_id)
 
 
-def resolve_device(device: str) -> str:
-    """Resolve an auto/cpu/cuda device setting into a torch device string."""
-    return ",".join(resolve_devices(device))
-
-
-def resolve_devices(device: str) -> tuple[str, ...]:
-    """Resolve an auto/cpu/cuda device setting into one or more torch devices."""
-    if device == "auto":
-        if not torch.cuda.is_available():
-            return ("cpu",)
-        return _all_cuda_devices()
-    if device == "cuda":
-        if not torch.cuda.is_available():
-            raise ValueError("CUDA was requested, but torch.cuda.is_available() is false.")
-        return _all_cuda_devices()
-    return (device,)
-
-
 def normalize_feature_mode(feature_mode: str) -> ImageClipFeatureMode:
     """Return the canonical feature mode name used for saving and encoding."""
     if feature_mode in ("pooled", "last_hidden_state_no_cls"):
@@ -256,14 +270,6 @@ def _validate_partition_metadata(
             "Partition metadata lengths must match: "
             f"img={len(image_paths)}, text={len(texts)}, label={len(labels)}."
         )
-
-
-def _all_cuda_devices() -> tuple[str, ...]:
-    """Return every visible CUDA device as torch device strings."""
-    count = torch.cuda.device_count()
-    if count < 1:
-        raise ValueError("CUDA is available, but torch.cuda.device_count() is zero.")
-    return tuple("cuda:" + str(index) for index in range(count))
 
 
 def _split_contiguous(values: list[str], num_chunks: int) -> list[list[str]]:
@@ -311,6 +317,7 @@ class Thingseeg2ClipExtractor:
     feature_mode: ImageClipFeatureMode = "pooled"
     extract_image: bool = True
     extract_text: bool = False
+    blur_levels: dict[str, float] | None = None
     backend_factory: Callable[..., ClipBackend] | None = None
 
     def __post_init__(self) -> None:
@@ -319,6 +326,8 @@ class Thingseeg2ClipExtractor:
             raise ValueError("At least one of extract_image or extract_text must be true.")
         if self.batch_size < 1:
             raise ValueError("batch_size must be positive.")
+        if self.blur_levels is None:
+            self.blur_levels = {"no_blur": 0.0}
 
         self.prep_eeg_data_dir = Path(self.prep_eeg_data_dir)
         self.save_dir = Path(self.save_dir)
@@ -385,11 +394,12 @@ class Thingseeg2ClipExtractor:
             if _callable_accepts_device(self.backend_factory):
                 return self.backend_factory(self, device)
             return self.backend_factory(self)
-        return HuggingFaceClipBackend(
+        return create_clip_backend(
             model_id=self.resolved_model_id,
-            model_cache_dir=self.model_cache_dir,
-            device=device,
+            devices=(device,),
             feature_mode=self.feature_mode,
+            model_cache_dir=self.model_cache_dir,
+            blur_levels=self.blur_levels,
         )
 
     def _extract_partition(self, partition: str, backend: ClipBackend) -> str:
@@ -414,28 +424,34 @@ class Thingseeg2ClipExtractor:
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         output_path = self.output_dir / f"{partition}.pt"
-        torch.save(
-            {
-                "image_path": metadata.image_paths,
-                "text": metadata.texts,
-                "label": metadata.labels,
-                "image_features": image_features,
-                "text_features": text_features,
-                "metadata": {
-                    "reference_subject_id": self.reference_subject_id,
-                    "partition": partition,
-                    "model_name": self.model_name,
-                    "model_id": self.resolved_model_id,
-                    "feature_mode": self.feature_mode,
-                    "device": self.resolved_device,
-                    "extract_image": self.extract_image,
-                    "extract_text": self.extract_text,
-                    "alignment": "image_features[i] aligns with eeg[i, rep]",
-                },
+
+        save_dict = {
+            "image_path": metadata.image_paths,
+            "text": metadata.texts,
+            "label": metadata.labels,
+            "metadata": {
+                "reference_subject_id": self.reference_subject_id,
+                "partition": partition,
+                "model_name": self.model_name,
+                "model_id": self.resolved_model_id,
+                "feature_mode": self.feature_mode,
+                "device": self.resolved_device,
+                "extract_image": self.extract_image,
+                "extract_text": self.extract_text,
+                "blur_levels": self.blur_levels,
+                "alignment": "image_features[i] aligns with eeg[i, rep]",
             },
-            output_path,
-            pickle_protocol=5,
-        )
+        }
+
+        if isinstance(image_features, dict):
+            for view_name, features in image_features.items():
+                save_dict[f"image_features_{view_name}"] = features
+        else:
+            save_dict["image_features"] = image_features
+
+        save_dict["text_features"] = text_features
+
+        torch.save(save_dict, output_path, pickle_protocol=5)
         console.print(
             f"  [green]OK[/green] Saved {partition} features: " f"[dim]{output_path}[/dim]"
         )
@@ -444,9 +460,9 @@ class Thingseeg2ClipExtractor:
     def _encode_in_batches(
         self,
         values: list[str],
-        encode_batch: Callable[[list[str]], torch.Tensor],
+        encode_batch: Callable[[list[str]], torch.Tensor | dict[str, torch.Tensor]],
         description: str,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
         features = []
         total_batches = (len(values) + self.batch_size - 1) // self.batch_size
         with create_progress() as progress:
@@ -455,6 +471,15 @@ class Thingseeg2ClipExtractor:
                 batch = values[start_idx : start_idx + self.batch_size]
                 features.append(encode_batch(batch))
                 progress.advance(task)
+
+        if isinstance(features[0], dict):
+            view_names = features[0].keys()
+            return {
+                view_name: torch.cat(
+                    [batch_features[view_name] for batch_features in features], dim=0
+                )
+                for view_name in view_names
+            }
         return torch.cat(features, dim=0)
 
     def _print_config(self) -> None:

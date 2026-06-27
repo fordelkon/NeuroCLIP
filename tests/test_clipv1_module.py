@@ -1,5 +1,7 @@
 import inspect
+from types import SimpleNamespace
 
+import numpy as np
 import torch
 from torch import nn
 
@@ -29,6 +31,42 @@ class DummySubjectAwareEEGNet(DummyEEGNet):
         if subject_ids is None:
             raise ValueError("subject_ids are required")
         return super().forward(x + subject_ids.float().unsqueeze(-1) * 0.0)
+
+
+class DummyUBPDataset:
+    def __init__(self, view_names: list[str] | None, length: int = 4) -> None:
+        self.view_names = view_names
+        self.match_label = np.ones(length, dtype=np.int32) if view_names is not None else None
+        self.updated_indices: np.ndarray | None = None
+        self.updated_labels: np.ndarray | None = None
+
+    def __len__(self) -> int:
+        return len(self.match_label) if self.match_label is not None else 4
+
+    def update_match_labels(self, indices: np.ndarray, labels: np.ndarray) -> None:
+        self.updated_indices = indices
+        self.updated_labels = labels
+        self.match_label[indices] = labels
+
+
+def _attach_fake_trainer(
+    module: ClipV1LitModule,
+    *,
+    train_dataset: object | None = None,
+    test_dataset: object | None = None,
+    current_epoch: int = 0,
+) -> None:
+    train_dataloader = (
+        SimpleNamespace(dataset=train_dataset) if train_dataset is not None else None
+    )
+    datamodule = SimpleNamespace(data_test=test_dataset) if test_dataset is not None else None
+    module._trainer = SimpleNamespace(
+        train_dataloader=train_dataloader,
+        datamodule=datamodule,
+        world_size=1,
+        is_global_zero=True,
+        current_epoch=current_epoch,
+    )
 
 
 def test_forward_returns_l2_normalized_eeg_features():
@@ -107,6 +145,112 @@ def test_model_step_computes_loss_from_batch_features():
     assert loss.ndim == 0
     assert eeg_features.shape == image_features.shape == text_features.shape
     assert torch.equal(labels, torch.arange(4))
+
+
+def test_on_train_start_auto_enables_ubp_for_multiview_dataset():
+    module = ClipV1LitModule(
+        eegnet=DummyEEGNet(),
+        optimizer=torch.optim.SGD,
+        scheduler=None,
+        compile=False,
+        enable_ubp=False,
+    )
+    dataset = DummyUBPDataset(["mid_blur", "no_blur", "heavy_blur"], length=6)
+    _attach_fake_trainer(module, train_dataset=dataset)
+
+    module.on_train_start()
+
+    assert module.enable_ubp is True
+    assert torch.equal(module.ubp_sim, torch.zeros(6))
+
+
+def test_on_train_start_disables_ubp_without_multiview_dataset():
+    module = ClipV1LitModule(
+        eegnet=DummyEEGNet(),
+        optimizer=torch.optim.SGD,
+        scheduler=None,
+        compile=False,
+        enable_ubp=True,
+    )
+    dataset = DummyUBPDataset(None)
+    _attach_fake_trainer(module, train_dataset=dataset)
+
+    module.on_train_start()
+
+    assert module.enable_ubp is False
+    assert not hasattr(module, "ubp_sim")
+
+
+def test_training_step_collects_ubp_confidences(monkeypatch):
+    module = ClipV1LitModule(
+        eegnet=DummyEEGNet(),
+        optimizer=torch.optim.SGD,
+        scheduler=None,
+        compile=False,
+        enable_ubp=True,
+        loss_type="cliploss",
+    )
+    module.ubp_indices = []
+    module.ubp_confidences = []
+    monkeypatch.setattr(module, "log", lambda *args, **kwargs: None)
+    batch = {
+        "idx": torch.tensor([2, 5]),
+        "eeg": torch.eye(4)[:2],
+        "image_features": torch.nn.functional.normalize(torch.eye(4)[:2], dim=-1),
+        "text_features": torch.nn.functional.normalize(
+            torch.flip(torch.eye(4), dims=[0])[:2], dim=-1
+        ),
+        "label": torch.arange(2),
+    }
+
+    loss = module.training_step(batch, batch_idx=0)
+
+    assert loss.ndim == 0
+    assert torch.equal(module.ubp_indices[0], torch.tensor([2, 5]))
+    assert torch.allclose(module.ubp_confidences[0], torch.ones(2))
+
+
+def test_on_train_epoch_end_updates_dataset_match_labels_from_confidence():
+    module = ClipV1LitModule(
+        eegnet=DummyEEGNet(),
+        optimizer=torch.optim.SGD,
+        scheduler=None,
+        compile=False,
+        enable_ubp=True,
+        ubp_gamma=0.5,
+        ubp_ci_alpha=0.5,
+    )
+    dataset = DummyUBPDataset(["mid_blur", "no_blur", "heavy_blur"], length=3)
+    _attach_fake_trainer(module, train_dataset=dataset, current_epoch=0)
+    module.ubp_sim = torch.zeros(3)
+    module.ubp_indices = [torch.tensor([0, 1, 2])]
+    module.ubp_confidences = [torch.tensor([-1.0, 0.0, 1.0])]
+
+    module.on_train_epoch_end()
+
+    assert dataset.updated_indices.tolist() == [0, 1, 2]
+    assert dataset.updated_labels.tolist() == [2, 1, 0]
+    assert dataset.match_label.tolist() == [2, 1, 0]
+    assert torch.allclose(module.ubp_sim, torch.tensor([-0.5, 0.0, 0.5]))
+    assert module.ubp_indices == []
+    assert module.ubp_confidences == []
+
+
+def test_on_test_start_sets_test_dataset_to_no_blur_view():
+    module = ClipV1LitModule(
+        eegnet=DummyEEGNet(),
+        optimizer=torch.optim.SGD,
+        scheduler=None,
+        compile=False,
+        enable_ubp=True,
+    )
+    dataset = DummyUBPDataset(["mid_blur", "no_blur", "heavy_blur"], length=4)
+    dataset.match_label[:] = 2
+    _attach_fake_trainer(module, test_dataset=dataset)
+
+    module.on_test_start()
+
+    assert dataset.match_label.tolist() == [1, 1, 1, 1]
 
 
 def test_clipv1_module_does_not_expose_local_metric_modes():

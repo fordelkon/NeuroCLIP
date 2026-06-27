@@ -1,5 +1,6 @@
 """Shared OmegaConf resolvers and CLIP model naming helpers."""
 
+import torch
 from omegaconf import OmegaConf
 
 CLIP_MODEL_MAP = {
@@ -100,6 +101,59 @@ def resolve_channel_count(selected_channels: object, all_channels: int) -> int:
     if selected_channels is None:
         return all_channels
     return len(selected_channels)  # type: ignore[arg-type]
+
+
+def resolve_devices(device: str) -> tuple[str, ...]:
+    """Resolve an auto/cpu/cuda device setting into one or more torch devices."""
+    if device == "auto":
+        if not torch.cuda.is_available():
+            return ("cpu",)
+        return _all_cuda_devices()
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            raise ValueError("CUDA was requested, but torch.cuda.is_available() is false.")
+        return _all_cuda_devices()
+    return (device,)
+
+
+def create_clip_backend(
+    model_id: str,
+    devices: tuple[str, ...],
+    feature_mode: str,
+    model_cache_dir: str | None = None,
+    blur_levels: dict[str, float] | None = None,
+):
+    """Create CLIP backend with automatic multi-device support."""
+    from src.extractors.thingseeg2 import HuggingFaceClipBackend, MultiDeviceClipBackend
+
+    if len(devices) > 1:
+        backends = [
+            HuggingFaceClipBackend(
+                model_id=model_id,
+                model_cache_dir=model_cache_dir,
+                device=device,
+                feature_mode=feature_mode,
+                blur_levels=blur_levels,
+            )
+            for device in devices
+        ]
+        return MultiDeviceClipBackend(backends)
+
+    return HuggingFaceClipBackend(
+        model_id=model_id,
+        model_cache_dir=model_cache_dir,
+        device=devices[0],
+        feature_mode=feature_mode,
+        blur_levels=blur_levels,
+    )
+
+
+def _all_cuda_devices() -> tuple[str, ...]:
+    """Return every visible CUDA device as torch device strings."""
+    count = torch.cuda.device_count()
+    if count < 1:
+        raise ValueError("CUDA is available, but torch.cuda.device_count() is zero.")
+    return tuple("cuda:" + str(index) for index in range(count))
 
 
 def register_config_resolvers() -> None:

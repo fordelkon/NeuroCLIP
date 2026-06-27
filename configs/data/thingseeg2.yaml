@@ -40,6 +40,7 @@ selected_channels:
 
 # Offline CLIP feature location is resolved as:
 # clip_features_dir / model_name / resolved_model_id / feature_mode.
-model_name: ViT-B-32
-model_id: null
-feature_mode: pooled
+# These parameters are inherited from the extractor configuration to ensure consistency.
+model_name: ${extract.model_name}
+model_id: ${extract.model_id}
+feature_mode: ${extract.feature_mode}
